@@ -69,10 +69,6 @@ class FixVMMC : public Fix {
   double ntranslation_successes;
   double nrotation_attempts;
   double nrotation_successes;
-  double ndeletion_attempts;
-  double ndeletion_successes;
-  double ninsertion_attempts;
-  double ninsertion_successes;
 
   int mc_active;              // 1 during MC trials, otherwise 0
 
@@ -125,19 +121,11 @@ class FixVMMC : public Fix {
   void options(int, char **);
 
   void attempt_atomic_translation();
-  void attempt_atomic_deletion();
-  void attempt_atomic_insertion();
   void attempt_molecule_translation();
   void attempt_molecule_rotation();
-  void attempt_molecule_deletion();
-  void attempt_molecule_insertion();
   void attempt_atomic_translation_full();
-  void attempt_atomic_deletion_full();
-  void attempt_atomic_insertion_full();
   void attempt_molecule_translation_full();
   void attempt_molecule_rotation_full();
-  void attempt_molecule_deletion_full();
-  void attempt_molecule_insertion_full();
 
   double energy(int, int, tagint, double *);
   double energy_full();
