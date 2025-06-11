@@ -38,21 +38,18 @@ class FixVMMC : public Fix {
   void *extract(const char *, int &) override;
 
  private:
-  int molecule_group, molecule_group_bit;
-  int molecule_group_inversebit;
   int exclusion_group, exclusion_group_bit;
   int nvmmc_type, nevery, seed;
-  int ncycles, nexchanges, nmcmoves;
+  int ncycles, nmcmoves;
   double patomtrans, pmctot;
   int ngas;                // # of gas atoms on all procs
   int ngas_local;          // # of gas atoms on this proc
   int ngas_before;         // # of gas atoms on procs < this proc
-  int exchmode;            // exchange ATOM or MOLECULE
-  int movemode;            // move ATOM or MOLECULE
+  int exchmode;            // exchange ATOM, MOLECULE not supported
+  int movemode;            // move ATOM, MOLECULE not supported
   class Region *region;    // vmmc region
   char *idregion;          // vmmc region id
   bool pressure_flag;      // true if user specified reservoir pressure
-  bool charge_flag;        // true if user specified atomic charge
   bool full_flag;          // true if doing full system energy calculations
 
   int groupbitall;            // group bitmask for inserted atoms
@@ -64,8 +61,6 @@ class FixVMMC : public Fix {
   int *grouptypes;            // list of type-based group types
   double ntranslation_attempts;
   double ntranslation_successes;
-  double nrotation_attempts;
-  double nrotation_successes;
 
   int mc_active;              // 1 during MC trials, otherwise 0
 
@@ -74,11 +69,10 @@ class FixVMMC : public Fix {
   double gas_mass;
   double reservoir_temperature;
   double tfac_insert;
-  double chemical_potential;
   double displace;
   double max_rotation_angle;
-  double beta, zz, sigma, volume;
-  double pressure, fugacity_coeff, charge;
+  double beta;
+  double volume, pressure;
   double xlo, xhi, ylo, yhi, zlo, zhi;
   double region_xlo, region_xhi, region_ylo, region_yhi, region_zlo, region_zhi;
   double region_volume;
@@ -117,7 +111,6 @@ class FixVMMC : public Fix {
 
   int pick_random_gas_atom();
   tagint pick_random_gas_molecule();
-  void toggle_intramolecular(int);
   void update_gas_atoms_list();
 
 };

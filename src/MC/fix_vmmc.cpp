@@ -20,6 +20,7 @@
 
 #include "fix_vmmc.h"
 #include "VMMC.h"
+#include "MersenneTwister.h"
 
 #include "angle.h"
 #include "atom.h"
@@ -64,8 +65,7 @@ static constexpr double MAXENERGYSIGNAL = 1.0e100;
 
 static constexpr double MAXENERGYTEST = 1.0e50;
 
-enum { EXCHATOM, EXCHMOL };          // exchmode
-enum { NONE, MOVEATOM, MOVEMOL };    // movemode
+enum { NONE, MOVEATOM };    // movemode
 
 /* ---------------------------------------------------------------------- */
 
@@ -74,7 +74,7 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
     groupstrings(nullptr), grouptypestrings(nullptr), grouptypebits(nullptr), grouptypes(nullptr),
     local_gas_list(nullptr), random_equal(nullptr), random_unequal(nullptr)
 {
-  if (narg < 11) utils::missing_cmd_args(FLERR, "fix vmmc", error);
+  if (narg < 9) utils::missing_cmd_args(FLERR, "fix vmmc", error);
 
   if (atom->molecular == Atom::TEMPLATE)
     error->all(FLERR,"Fix vmmc does not (yet) work with atom_style template");
@@ -95,16 +95,13 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   // required args
 
   nevery = utils::inumeric(FLERR, arg[3], false, lmp);
-  nexchanges = utils::inumeric(FLERR, arg[4], false, lmp);
-  nmcmoves = utils::inumeric(FLERR, arg[5], false, lmp);
-  nvmmc_type = utils::expand_type_int(FLERR, arg[6], Atom::ATOM, lmp);
-  seed = utils::inumeric(FLERR, arg[7], false, lmp);
-  reservoir_temperature = utils::numeric(FLERR, arg[8], false, lmp);
-  chemical_potential = utils::numeric(FLERR, arg[9], false, lmp);
-  displace = utils::numeric(FLERR, arg[10], false, lmp);
+  nmcmoves = utils::inumeric(FLERR, arg[4], false, lmp);
+  nvmmc_type = utils::expand_type_int(FLERR, arg[5], Atom::ATOM, lmp);
+  seed = utils::inumeric(FLERR, arg[6], false, lmp);
+  reservoir_temperature = utils::numeric(FLERR, arg[7], false, lmp);
+  displace = utils::numeric(FLERR, arg[8], false, lmp);
 
   if (nevery <= 0) error->all(FLERR, "Illegal fix vmmc command");
-  if (nexchanges < 0) error->all(FLERR, "Illegal fix vmmc command");
   if (nmcmoves < 0) error->all(FLERR, "Illegal fix vmmc command");
   if (seed <= 0) error->all(FLERR, "Illegal fix vmmc command");
   if (reservoir_temperature < 0.0)
@@ -113,7 +110,7 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
 
   // read options from end of input line
 
-  options(narg-11,&arg[11]);
+  options(narg-9,&arg[9]);
 
   // random number generator, same for all procs
 
@@ -158,12 +155,9 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
     region_volume = max_region_volume * static_cast<double>(inside) / static_cast<double>(attempts);
   }
 
-  if (charge_flag && atom->q == nullptr)
-    error->all(FLERR,"Fix vmmc atom has charge, but atom style does not");
-
   // compute the number of MC cycles that occur nevery timesteps
 
-  ncycles = nexchanges + nmcmoves;
+  ncycles = nmcmoves;
 
   // set up reneighboring
 
@@ -176,8 +170,6 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
 
   ntranslation_attempts = 0.0;
   ntranslation_successes = 0.0;
-  nrotation_attempts = 0.0;
-  nrotation_successes = 0.0;
 
   vmmc_nmax = 0;
   local_gas_list = nullptr;
@@ -193,23 +185,16 @@ void FixVMMC::options(int narg, char **arg)
 
   // defaults
 
-  exchmode = EXCHATOM;
   movemode = NONE;
   patomtrans = 0.0;
   pmctot = 0.0;
   max_rotation_angle = 10*MY_PI/180;
   region_volume = 0;
   max_region_attempts = 1000;
-  molecule_group = 0;
-  molecule_group_bit = 0;
-  molecule_group_inversebit = 0;
   exclusion_group = 0;
   exclusion_group_bit = 0;
   pressure_flag = false;
   pressure = 0.0;
-  fugacity_coeff = 1.0;
-  charge = 0.0;
-  charge_flag = false;
   full_flag = false;
   ngroups = 0;
   int ngroupsmax = 0;
@@ -252,15 +237,6 @@ void FixVMMC::options(int narg, char **arg)
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
       pressure = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       pressure_flag = true;
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"fugacity_coeff") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
-      fugacity_coeff = utils::numeric(FLERR,arg[iarg+1],false,lmp);
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"charge") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
-      charge = utils::numeric(FLERR,arg[iarg+1],false,lmp);
-      charge_flag = true;
       iarg += 2;
     }  else if (strcmp(arg[iarg],"full_energy") == 0) {
       full_flag = true;
@@ -358,16 +334,6 @@ FixVMMC::~FixVMMC()
     }
   }
 
-  if (molecule_group_bit && group) {
-    auto group_id = std::string("FixVMMC:rotation_gas_atoms:") + id;
-    try {
-      group->assign(group_id + " delete");
-    } catch (std::exception &e) {
-      if (comm->me == 0)
-        fprintf(stderr, "Error deleting group %s: %s\n", group_id.c_str(), e.what());
-    }
-  }
-
   if (full_flag && group && neighbor) {
     int igroupall = group->find("all");
     neighbor->exclusion_group_group_delete(exclusion_group,igroupall);
@@ -430,14 +396,11 @@ void FixVMMC::init()
   // set probabilities for MC moves
 
   if (nmcmoves > 0) {
+    movemode = MOVEATOM;
     if (pmctot == 0.0) {
-      if (exchmode == EXCHATOM) {
-        movemode = MOVEATOM;
         patomtrans = 1.0;
-      }
     }
     else {
-      movemode = MOVEATOM;
       patomtrans /= pmctot;
     }
   } else movemode = NONE;
@@ -458,27 +421,6 @@ void FixVMMC::init()
   }
 
   if (full_flag) c_pe = modify->compute[modify->find_compute("thermo_pe")];
-
-  int *type = atom->type;
-
-  if (exchmode == EXCHATOM) {
-    if (nvmmc_type <= 0 || nvmmc_type > atom->ntypes)
-      error->all(FLERR,"Invalid atom type in fix vmmc command");
-  }
-
-  // if atoms are exchanged, warn if any deletable atom has a mol ID
-
-  if ((exchmode == EXCHATOM) && atom->molecule_flag) {
-    tagint *molecule = atom->molecule;
-    int flag = 0;
-    for (int i = 0; i < atom->nlocal; i++)
-      if (type[i] == nvmmc_type)
-        if (molecule[i]) flag = 1;
-    int flagall;
-    MPI_Allreduce(&flag,&flagall,1,MPI_INT,MPI_SUM,world);
-    if (flagall)
-      error->all(FLERR, "Fix vmmc cannot exchange individual atoms belonging to a molecule");
-  }
 
   if (domain->dimension == 2)
     error->all(FLERR,"Cannot use fix vmmc in a 2d simulation");
@@ -504,9 +446,7 @@ void FixVMMC::init()
     neighbor->modify_params(fmt::format("exclude group {} all",group_id));
   }
 
-  // get all of the needed molecule data if exchanging
-  // or moving molecules, otherwise just get the gas mass
-
+  // get the gas mass
   gas_mass = atom->mass[nvmmc_type];
 
   if (gas_mass <= 0.0)
@@ -530,20 +470,8 @@ void FixVMMC::init()
       error->all(FLERR,"Cannot do VMMC on atoms in atom_modify first group");
   }
 
-  // compute beta, lambda, sigma, and the zz factor
-  // For LJ units, lambda=1
+  // compute beta
   beta = 1.0/(force->boltz*reservoir_temperature);
-  if (strcmp(update->unit_style,"lj") == 0)
-    zz = exp(beta*chemical_potential);
-  else {
-    double lambda = sqrt(force->hplanck*force->hplanck/
-                         (2.0*MY_PI*gas_mass*force->mvv2e*
-                        force->boltz*reservoir_temperature));
-    zz = exp(beta*chemical_potential)/(pow(lambda,3.0));
-  }
-
-  sigma = sqrt(force->boltz*reservoir_temperature*tfac_insert/gas_mass/force->mvv2e);
-  if (pressure_flag) zz = pressure*fugacity_coeff*beta/force->nktv2p;
 
   imagezero = ((imageint) IMGMAX << IMG2BITS) |
              ((imageint) IMGMAX << IMGBITS) | IMGMAX;
@@ -581,7 +509,7 @@ void FixVMMC::init()
 }
 
 /* ----------------------------------------------------------------------
-   attempt Monte Carlo translations, rotations, insertions, and deletions
+   attempt Monte Carlo translations
    done before exchange, borders, reneighbor
    so that ghost atoms and neighbor lists will be correct
 ------------------------------------------------------------------------- */
@@ -909,7 +837,7 @@ double FixVMMC::energy_full()
   }
 
   // clear forces so they don't accumulate over multiple
-  // calls within fix vmmc timestep, e.g. for fix shake
+  // calls within fix vmmc timestep
 
   size_t nbytes = sizeof(double) * (atom->nlocal + atom->nghost);
   if (nbytes) memset(&atom->f[0][0],0,3*nbytes);
@@ -978,28 +906,6 @@ tagint FixVMMC::pick_random_gas_molecule()
 }
 
 /* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
-
-void FixVMMC::toggle_intramolecular(int i)
-{
-  if (atom->avec->bonds_allow)
-    for (int m = 0; m < atom->num_bond[i]; m++)
-      atom->bond_type[i][m] = -atom->bond_type[i][m];
-
-  if (atom->avec->angles_allow)
-    for (int m = 0; m < atom->num_angle[i]; m++)
-      atom->angle_type[i][m] = -atom->angle_type[i][m];
-
-  if (atom->avec->dihedrals_allow)
-    for (int m = 0; m < atom->num_dihedral[i]; m++)
-      atom->dihedral_type[i][m] = -atom->dihedral_type[i][m];
-
-  if (atom->avec->impropers_allow)
-    for (int m = 0; m < atom->num_improper[i]; m++)
-      atom->improper_type[i][m] = -atom->improper_type[i][m];
-}
-
-/* ----------------------------------------------------------------------
    update the list of gas atoms
 ------------------------------------------------------------------------- */
 
@@ -1051,8 +957,6 @@ double FixVMMC::compute_vector(int n)
 {
   if (n == 0) return ntranslation_attempts;
   if (n == 1) return ntranslation_successes;
-  if (n == 6) return nrotation_attempts;
-  if (n == 7) return nrotation_successes;
   return 0.0;
 }
 
@@ -1079,8 +983,6 @@ void FixVMMC::write_restart(FILE *fp)
   list[n++] = ubuf(next_reneighbor).d;
   list[n++] = ntranslation_attempts;
   list[n++] = ntranslation_successes;
-  list[n++] = nrotation_attempts;
-  list[n++] = nrotation_successes;
   list[n++] = ubuf(update->ntimestep).d;
 
   if (comm->me == 0) {
@@ -1109,8 +1011,6 @@ void FixVMMC::restart(char *buf)
 
   ntranslation_attempts  = list[n++];
   ntranslation_successes = list[n++];
-  nrotation_attempts     = list[n++];
-  nrotation_successes    = list[n++];
 
   bigint ntimestep_restart = (bigint) ubuf(list[n++]).i;
   if (ntimestep_restart != update->ntimestep)
