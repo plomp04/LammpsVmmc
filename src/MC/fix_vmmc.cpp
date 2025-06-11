@@ -39,7 +39,6 @@
 #include "math_extra.h"
 #include "memory.h"
 #include "modify.h"
-#include "molecule.h"
 #include "neighbor.h"
 #include "pair.h"
 #include "random_park.h"
@@ -73,9 +72,7 @@ enum { NONE, MOVEATOM, MOVEMOL };    // movemode
 FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
     Fix(lmp, narg, arg), region(nullptr), idregion(nullptr), full_flag(false),
     groupstrings(nullptr), grouptypestrings(nullptr), grouptypebits(nullptr), grouptypes(nullptr),
-    local_gas_list(nullptr), molcoords(nullptr), molq(nullptr), molimage(nullptr),
-    random_equal(nullptr), random_unequal(nullptr), fixrigid(nullptr), fixshake(nullptr),
-    idrigid(nullptr), idshake(nullptr)
+    local_gas_list(nullptr), random_equal(nullptr), random_unequal(nullptr)
 {
   if (narg < 11) utils::missing_cmd_args(FLERR, "fix vmmc", error);
 
@@ -164,25 +161,6 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   if (charge_flag && atom->q == nullptr)
     error->all(FLERR,"Fix vmmc atom has charge, but atom style does not");
 
-  if (rigidflag && exchmode == EXCHATOM)
-    error->all(FLERR,"Cannot use fix vmmc rigid and not molecule");
-  if (shakeflag && exchmode == EXCHATOM)
-    error->all(FLERR,"Cannot use fix vmmc shake and not molecule");
-  if (rigidflag && shakeflag)
-    error->all(FLERR,"Cannot use fix vmmc rigid and shake");
-  if (rigidflag && (nmcmoves > 0))
-    error->all(FLERR,"Cannot use fix vmmc rigid with MC moves");
-  if (shakeflag && (nmcmoves > 0))
-    error->all(FLERR,"Cannot use fix vmmc shake with MC moves");
-
-  // setup of array of coordinates for molecule insertion
-  // also used by rotation moves for any molecule
-
-  if (exchmode == EXCHATOM) natoms_per_molecule = 1;
-  else natoms_per_molecule = onemols[imol]->natoms;
-  nmaxmolatoms = natoms_per_molecule;
-  grow_molecule_arrays(nmaxmolatoms);
-
   // compute the number of MC cycles that occur nevery timesteps
 
   ncycles = nexchanges + nmcmoves;
@@ -218,8 +196,6 @@ void FixVMMC::options(int narg, char **arg)
   exchmode = EXCHATOM;
   movemode = NONE;
   patomtrans = 0.0;
-  pmoltrans = 0.0;
-  pmolrotate = 0.0;
   pmctot = 0.0;
   max_rotation_angle = 10*MY_PI/180;
   region_volume = 0;
@@ -232,8 +208,6 @@ void FixVMMC::options(int narg, char **arg)
   pressure_flag = false;
   pressure = 0.0;
   fugacity_coeff = 1.0;
-  rigidflag = 0;
-  shakeflag = 0;
   charge = 0.0;
   charge_flag = false;
   full_flag = false;
@@ -257,11 +231,9 @@ void FixVMMC::options(int narg, char **arg)
     if (strcmp(arg[iarg],"mcmoves") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix vmmc command");
       patomtrans = utils::numeric(FLERR,arg[iarg+1],false,lmp);
-      pmoltrans = utils::numeric(FLERR,arg[iarg+2],false,lmp);
-      pmolrotate = utils::numeric(FLERR,arg[iarg+3],false,lmp);
-      if (patomtrans < 0 || pmoltrans < 0 || pmolrotate < 0)
+      if (patomtrans < 0)
         error->all(FLERR,"Illegal fix vmmc command");
-      pmctot = patomtrans + pmoltrans + pmolrotate;
+      pmctot = patomtrans;
       if (pmctot <= 0)
         error->all(FLERR,"Illegal fix vmmc command");
       iarg += 4;
@@ -290,19 +262,7 @@ void FixVMMC::options(int narg, char **arg)
       charge = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       charge_flag = true;
       iarg += 2;
-    } else if (strcmp(arg[iarg],"rigid") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
-      delete [] idrigid;
-      idrigid = utils::strdup(arg[iarg+1]);
-      rigidflag = 1;
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"shake") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
-      delete [] idshake;
-      idshake = utils::strdup(arg[iarg+1]);
-      shakeflag = 1;
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"full_energy") == 0) {
+    }  else if (strcmp(arg[iarg],"full_energy") == 0) {
       full_flag = true;
       iarg += 1;
     } else if (strcmp(arg[iarg],"group") == 0) {
@@ -367,12 +327,6 @@ FixVMMC::~FixVMMC()
   delete random_unequal;
 
   memory->destroy(local_gas_list);
-  memory->destroy(molcoords);
-  memory->destroy(molq);
-  memory->destroy(molimage);
-
-  delete[] idrigid;
-  delete[] idshake;
 
   if (ngroups > 0) {
     for (int igroup = 0; igroup < ngroups; igroup++)
@@ -476,26 +430,15 @@ void FixVMMC::init()
   // set probabilities for MC moves
 
   if (nmcmoves > 0) {
-    if (pmctot == 0.0)
+    if (pmctot == 0.0) {
       if (exchmode == EXCHATOM) {
         movemode = MOVEATOM;
         patomtrans = 1.0;
-        pmoltrans = 0.0;
-        pmolrotate = 0.0;
-      } else {
-        movemode = MOVEMOL;
-        patomtrans = 0.0;
-        pmoltrans = 0.5;
-        pmolrotate = 0.5;
       }
+    }
     else {
-      if (pmoltrans == 0.0 && pmolrotate == 0.0)
-        movemode = MOVEATOM;
-      else
-        movemode = MOVEMOL;
+      movemode = MOVEATOM;
       patomtrans /= pmctot;
-      pmoltrans /= pmctot;
-      pmolrotate /= pmctot;
     }
   } else movemode = NONE;
 
@@ -535,30 +478,6 @@ void FixVMMC::init()
     MPI_Allreduce(&flag,&flagall,1,MPI_INT,MPI_SUM,world);
     if (flagall)
       error->all(FLERR, "Fix vmmc cannot exchange individual atoms belonging to a molecule");
-  }
-
-  // if rigidflag defined, check for rigid/small fix
-  // its molecule template must be same as this one
-
-  fixrigid = nullptr;
-  if (rigidflag) {
-    fixrigid = modify->get_fix_by_id(idrigid);
-    if (!fixrigid) error->all(FLERR,"Fix vmmc rigid fix ID {} does not exist", idrigid);
-    int tmp;
-    if (&onemols[imol] != (Molecule **) fixrigid->extract("onemol",tmp))
-      error->all(FLERR, "Fix vmmc and fix rigid/small not using same molecule template ID");
-  }
-
-  // if shakeflag defined, check for SHAKE fix
-  // its molecule template must be same as this one
-
-  fixshake = nullptr;
-  if (shakeflag) {
-    fixshake = modify->get_fix_by_id(idshake);
-    if (!fixshake) error->all(FLERR,"Fix vmmc shake fix ID {} does not exist", idshake);
-    int tmp;
-    if (&onemols[imol] != (Molecule **) fixshake->extract("onemol",tmp))
-      error->all(FLERR,"Fix vmmc and fix shake not using same molecule template ID");
   }
 
   if (domain->dimension == 2)
@@ -659,14 +578,6 @@ void FixVMMC::init()
     }
   }
 
-  // current implementation is broken using
-  // full_flag and translation/rotation of molecules
-  // on more than one processor.
-
-  if (full_flag && movemode == MOVEMOL && comm->nprocs > 1)
-    error->all(FLERR,"fix vmmc does currently not support full_energy "
-               "option with molecule MC moves on more than 1 MPI process.");
-
 }
 
 /* ----------------------------------------------------------------------
@@ -719,9 +630,6 @@ void FixVMMC::pre_exchange()
       if (ixm <= nmcmoves) {
         double xmcmove = random_equal->uniform();
         if (xmcmove < patomtrans) attempt_atomic_translation_full();
-        else if (xmcmove < patomtrans+pmoltrans) attempt_molecule_translation_full();
-        else attempt_molecule_rotation_full();
-
       }
     }
     if (triclinic) domain->x2lamda(atom->nlocal);
@@ -738,8 +646,6 @@ void FixVMMC::pre_exchange()
       if (ixm <= nmcmoves) {
         double xmcmove = random_equal->uniform();
         if (xmcmove < patomtrans) attempt_atomic_translation();
-        else if (xmcmove < patomtrans+pmoltrans) attempt_molecule_translation();
-        else attempt_molecule_rotation();
       }
     }
   }
@@ -820,211 +726,6 @@ void FixVMMC::attempt_atomic_translation()
     if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
     update_gas_atoms_list();
     ntranslation_successes += 1.0;
-  }
-}
-
-/* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
-
-void FixVMMC::attempt_molecule_translation()
-{
-  ntranslation_attempts += 1.0;
-
-  if (ngas == 0) return;
-
-  tagint translation_molecule = pick_random_gas_molecule();
-  if (translation_molecule == -1) return;
-
-  double energy_before_sum = molecule_energy(translation_molecule);
-  if (overlap_flag && energy_before_sum > MAXENERGYTEST)
-    error->warning(FLERR,"Energy of old configuration in "
-                   "fix vmmc is > MAXENERGYTEST.");
-
-  double **x = atom->x;
-  double rx,ry,rz;
-  double com_displace[3],coord[3];
-  double rsq = 1.1;
-  while (rsq > 1.0) {
-    rx = 2*random_equal->uniform() - 1.0;
-    ry = 2*random_equal->uniform() - 1.0;
-    rz = 2*random_equal->uniform() - 1.0;
-    rsq = rx*rx + ry*ry + rz*rz;
-  }
-  com_displace[0] = displace*rx;
-  com_displace[1] = displace*ry;
-  com_displace[2] = displace*rz;
-
-  if (region) {
-    int *mask = atom->mask;
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (atom->molecule[i] == translation_molecule) {
-        mask[i] |= molecule_group_bit;
-      } else {
-        mask[i] &= molecule_group_inversebit;
-      }
-    }
-    double com[3];
-    com[0] = com[1] = com[2] = 0.0;
-    group->xcm(molecule_group,gas_mass,com);
-    coord[0] = com[0] + displace*rx;
-    coord[1] = com[1] + displace*ry;
-    coord[2] = com[2] + displace*rz;
-    while (region->match(coord[0],coord[1],coord[2]) == 0) {
-      rsq = 1.1;
-      while (rsq > 1.0) {
-        rx = 2*random_equal->uniform() - 1.0;
-        ry = 2*random_equal->uniform() - 1.0;
-        rz = 2*random_equal->uniform() - 1.0;
-        rsq = rx*rx + ry*ry + rz*rz;
-      }
-      coord[0] = com[0] + displace*rx;
-      coord[1] = com[1] + displace*ry;
-      coord[2] = com[2] + displace*rz;
-    }
-    com_displace[0] = displace*rx;
-    com_displace[1] = displace*ry;
-    com_displace[2] = displace*rz;
-  }
-
-  double energy_after = 0.0;
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (atom->molecule[i] == translation_molecule) {
-      coord[0] = x[i][0] + com_displace[0];
-      coord[1] = x[i][1] + com_displace[1];
-      coord[2] = x[i][2] + com_displace[2];
-      if (!domain->inside_nonperiodic(coord))
-        error->one(FLERR,"Fix vmmc put atom outside box");
-      energy_after += energy(i,atom->type[i],translation_molecule,coord);
-    }
-  }
-
-  double energy_after_sum = 0.0;
-  MPI_Allreduce(&energy_after,&energy_after_sum,1,MPI_DOUBLE,MPI_SUM,world);
-
-  if (energy_after_sum < MAXENERGYTEST &&
-      random_equal->uniform() <
-      exp(beta*(energy_before_sum - energy_after_sum))) {
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (atom->molecule[i] == translation_molecule) {
-        x[i][0] += com_displace[0];
-        x[i][1] += com_displace[1];
-        x[i][2] += com_displace[2];
-      }
-    }
-    if (triclinic) domain->x2lamda(atom->nlocal);
-    domain->pbc();
-    comm->exchange();
-    atom->nghost = 0;
-    comm->borders();
-    if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
-    update_gas_atoms_list();
-    ntranslation_successes += 1.0;
-  }
-}
-
-/* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
-
-void FixVMMC::attempt_molecule_rotation()
-{
-  nrotation_attempts += 1.0;
-
-  if (ngas == 0) return;
-
-  tagint rotation_molecule = pick_random_gas_molecule();
-  if (rotation_molecule == -1) return;
-
-  double energy_before_sum = molecule_energy(rotation_molecule);
-  if (overlap_flag && energy_before_sum > MAXENERGYTEST)
-    error->warning(FLERR,"Energy of old configuration in "
-                   "fix vmmc is > MAXENERGYTEST.");
-
-  int *mask = atom->mask;
-  int nmolcoords = 0;
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (atom->molecule[i] == rotation_molecule) {
-      mask[i] |= molecule_group_bit;
-      nmolcoords++;
-    } else {
-      mask[i] &= molecule_group_inversebit;
-    }
-  }
-
-  if (nmolcoords > nmaxmolatoms)
-    grow_molecule_arrays(nmolcoords);
-
-  double com[3];
-  com[0] = com[1] = com[2] = 0.0;
-  group->xcm(molecule_group,gas_mass,com);
-
-  // generate point in unit cube
-  // then restrict to unit sphere
-
-  double r[3],rotmat[3][3],quat[4];
-  double rsq = 1.1;
-  while (rsq > 1.0) {
-    r[0] = 2.0*random_equal->uniform() - 1.0;
-    r[1] = 2.0*random_equal->uniform() - 1.0;
-    r[2] = 2.0*random_equal->uniform() - 1.0;
-    rsq = MathExtra::dot3(r, r);
-  }
-
-  double theta = random_equal->uniform() * max_rotation_angle;
-  MathExtra::norm3(r);
-  MathExtra::axisangle_to_quat(r,theta,quat);
-  MathExtra::quat_to_mat(quat,rotmat);
-
-  double **x = atom->x;
-  imageint *image = atom->image;
-  double energy_after = 0.0;
-  int n = 0;
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (mask[i] & molecule_group_bit) {
-      double xtmp[3];
-      domain->unmap(x[i],image[i],xtmp);
-      xtmp[0] -= com[0];
-      xtmp[1] -= com[1];
-      xtmp[2] -= com[2];
-      MathExtra::matvec(rotmat,xtmp,molcoords[n]);
-      molcoords[n][0] += com[0];
-      molcoords[n][1] += com[1];
-      molcoords[n][2] += com[2];
-      xtmp[0] = molcoords[n][0];
-      xtmp[1] = molcoords[n][1];
-      xtmp[2] = molcoords[n][2];
-      domain->remap(xtmp);
-      if (!domain->inside(xtmp))
-        error->one(FLERR,"Fix vmmc put atom outside box");
-      energy_after += energy(i,atom->type[i],rotation_molecule,xtmp);
-      n++;
-    }
-  }
-
-  double energy_after_sum = 0.0;
-  MPI_Allreduce(&energy_after,&energy_after_sum,1,MPI_DOUBLE,MPI_SUM,world);
-
-  if (energy_after_sum < MAXENERGYTEST &&
-      random_equal->uniform() <
-      exp(beta*(energy_before_sum - energy_after_sum))) {
-    int n = 0;
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (mask[i] & molecule_group_bit) {
-        image[i] = imagezero;
-        x[i][0] = molcoords[n][0];
-        x[i][1] = molcoords[n][1];
-        x[i][2] = molcoords[n][2];
-        domain->remap(x[i],image[i]);
-        n++;
-      }
-    }
-    if (triclinic) domain->x2lamda(atom->nlocal);
-    domain->pbc();
-    comm->exchange();
-    atom->nghost = 0;
-    comm->borders();
-    if (triclinic) domain->lamda2x(atom->nlocal+atom->nghost);
-    update_gas_atoms_list();
-    nrotation_successes += 1.0;
   }
 }
 
@@ -1117,195 +818,6 @@ void FixVMMC::attempt_atomic_translation_full()
 }
 
 /* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
-
-void FixVMMC::attempt_molecule_translation_full()
-{
-  ntranslation_attempts += 1.0;
-
-  if (ngas == 0) return;
-
-  tagint translation_molecule = pick_random_gas_molecule();
-  if (translation_molecule == -1) return;
-
-  double energy_before = energy_stored;
-
-  double **x = atom->x;
-  double rx,ry,rz;
-  double com_displace[3],coord[3];
-  double rsq = 1.1;
-  while (rsq > 1.0) {
-    rx = 2*random_equal->uniform() - 1.0;
-    ry = 2*random_equal->uniform() - 1.0;
-    rz = 2*random_equal->uniform() - 1.0;
-    rsq = rx*rx + ry*ry + rz*rz;
-  }
-  com_displace[0] = displace*rx;
-  com_displace[1] = displace*ry;
-  com_displace[2] = displace*rz;
-
-  if (region) {
-    int *mask = atom->mask;
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (atom->molecule[i] == translation_molecule) {
-        mask[i] |= molecule_group_bit;
-      } else {
-        mask[i] &= molecule_group_inversebit;
-      }
-    }
-    double com[3];
-    com[0] = com[1] = com[2] = 0.0;
-    group->xcm(molecule_group,gas_mass,com);
-    coord[0] = com[0] + displace*rx;
-    coord[1] = com[1] + displace*ry;
-    coord[2] = com[2] + displace*rz;
-    while (region->match(coord[0],coord[1],coord[2]) == 0) {
-      rsq = 1.1;
-      while (rsq > 1.0) {
-        rx = 2*random_equal->uniform() - 1.0;
-        ry = 2*random_equal->uniform() - 1.0;
-        rz = 2*random_equal->uniform() - 1.0;
-        rsq = rx*rx + ry*ry + rz*rz;
-      }
-      coord[0] = com[0] + displace*rx;
-      coord[1] = com[1] + displace*ry;
-      coord[2] = com[2] + displace*rz;
-    }
-    com_displace[0] = displace*rx;
-    com_displace[1] = displace*ry;
-    com_displace[2] = displace*rz;
-  }
-
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (atom->molecule[i] == translation_molecule) {
-      x[i][0] += com_displace[0];
-      x[i][1] += com_displace[1];
-      x[i][2] += com_displace[2];
-      if (!domain->inside_nonperiodic(x[i]))
-        error->one(FLERR,"Fix vmmc put atom outside box");
-    }
-  }
-
-  double energy_after = energy_full();
-
-  if (energy_after < MAXENERGYTEST &&
-      random_equal->uniform() <
-      exp(beta*(energy_before - energy_after))) {
-    ntranslation_successes += 1.0;
-    energy_stored = energy_after;
-  } else {
-    energy_stored = energy_before;
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (atom->molecule[i] == translation_molecule) {
-        x[i][0] -= com_displace[0];
-        x[i][1] -= com_displace[1];
-        x[i][2] -= com_displace[2];
-      }
-    }
-  }
-  update_gas_atoms_list();
-}
-
-/* ----------------------------------------------------------------------
-------------------------------------------------------------------------- */
-
-void FixVMMC::attempt_molecule_rotation_full()
-{
-  nrotation_attempts += 1.0;
-
-  if (ngas == 0) return;
-
-  tagint rotation_molecule = pick_random_gas_molecule();
-  if (rotation_molecule == -1) return;
-
-  double energy_before = energy_stored;
-
-  int *mask = atom->mask;
-  int nmolcoords = 0;
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (atom->molecule[i] == rotation_molecule) {
-      mask[i] |= molecule_group_bit;
-      nmolcoords++;
-    } else {
-      mask[i] &= molecule_group_inversebit;
-    }
-  }
-
-  if (nmolcoords > nmaxmolatoms)
-    grow_molecule_arrays(nmolcoords);
-
-  double com[3];
-  com[0] = com[1] = com[2] = 0.0;
-  group->xcm(molecule_group,gas_mass,com);
-
-  // generate point in unit cube
-  // then restrict to unit sphere
-
-  double r[3],rotmat[3][3],quat[4];
-  double rsq = 1.1;
-  while (rsq > 1.0) {
-    r[0] = 2.0*random_equal->uniform() - 1.0;
-    r[1] = 2.0*random_equal->uniform() - 1.0;
-    r[2] = 2.0*random_equal->uniform() - 1.0;
-    rsq = MathExtra::dot3(r, r);
-  }
-
-  double theta = random_equal->uniform() * max_rotation_angle;
-  MathExtra::norm3(r);
-  MathExtra::axisangle_to_quat(r,theta,quat);
-  MathExtra::quat_to_mat(quat,rotmat);
-
-  double **x = atom->x;
-  imageint *image = atom->image;
-
-  int n = 0;
-  for (int i = 0; i < atom->nlocal; i++) {
-    if (mask[i] & molecule_group_bit) {
-      molcoords[n][0] = x[i][0];
-      molcoords[n][1] = x[i][1];
-      molcoords[n][2] = x[i][2];
-      molimage[n] = image[i];
-      double xtmp[3];
-      domain->unmap(x[i],image[i],xtmp);
-      xtmp[0] -= com[0];
-      xtmp[1] -= com[1];
-      xtmp[2] -= com[2];
-      MathExtra::matvec(rotmat,xtmp,x[i]);
-      x[i][0] += com[0];
-      x[i][1] += com[1];
-      x[i][2] += com[2];
-      image[i] = imagezero;
-      domain->remap(x[i],image[i]);
-      if (!domain->inside(x[i]))
-        error->one(FLERR,"Fix vmmc put atom outside box");
-      n++;
-    }
-  }
-
-  double energy_after = energy_full();
-
-  if (energy_after < MAXENERGYTEST &&
-      random_equal->uniform() <
-      exp(beta*(energy_before - energy_after))) {
-    nrotation_successes += 1.0;
-    energy_stored = energy_after;
-  } else {
-    energy_stored = energy_before;
-    int n = 0;
-    for (int i = 0; i < atom->nlocal; i++) {
-      if (mask[i] & molecule_group_bit) {
-        x[i][0] = molcoords[n][0];
-        x[i][1] = molcoords[n][1];
-        x[i][2] = molcoords[n][2];
-        image[i] = molimage[n];
-        n++;
-      }
-    }
-  }
-  update_gas_atoms_list();
-}
-
-/* ----------------------------------------------------------------------
    compute particle's interaction energy with the rest of the system by
    looping over all atoms in the sub-domain including ghosts.
 ------------------------------------------------------------------------- */
@@ -1316,7 +828,6 @@ double FixVMMC::energy(int i, int itype, tagint imolecule, double *coord)
 
   double **x = atom->x;
   int *type = atom->type;
-  tagint *molecule = atom->molecule;
   int nall = atom->nlocal + atom->nghost;
   pair = force->pair;
   cutsq = force->pair->cutsq;
@@ -1352,31 +863,11 @@ double FixVMMC::energy(int i, int itype, tagint imolecule, double *coord)
 }
 
 /* ----------------------------------------------------------------------
-   compute the energy of the given gas molecule in its current position
-   sum across all procs that own atoms of the given molecule
-------------------------------------------------------------------------- */
-
-double FixVMMC::molecule_energy(tagint gas_molecule_id)
-{
-  double mol_energy = 0.0;
-  for (int i = 0; i < atom->nlocal; i++)
-    if (atom->molecule[i] == gas_molecule_id) {
-      mol_energy += energy(i,atom->type[i],gas_molecule_id,atom->x[i]);
-    }
-
-  double mol_energy_sum = 0.0;
-  MPI_Allreduce(&mol_energy,&mol_energy_sum,1,MPI_DOUBLE,MPI_SUM,world);
-
-  return mol_energy_sum;
-}
-
-/* ----------------------------------------------------------------------
    compute system potential energy
 ------------------------------------------------------------------------- */
 
 double FixVMMC::energy_full()
 {
-  int imolecule;
 
   if (triclinic) domain->x2lamda(atom->nlocal);
   domain->pbc();
@@ -1397,7 +888,6 @@ double FixVMMC::energy_full()
     int overlaptest = 0;
     double delx,dely,delz,rsq;
     double **x = atom->x;
-    tagint *molecule = atom->molecule;
     int nall = atom->nlocal + atom->nghost;
     for (int i = 0; i < atom->nlocal; i++) {
       for (int j = i+1; j < nall; j++) {
@@ -1517,7 +1007,6 @@ void FixVMMC::update_gas_atoms_list()
 {
   int nlocal = atom->nlocal;
   int *mask = atom->mask;
-  tagint *molecule = atom->molecule;
   double **x = atom->x;
 
   if (atom->nmax > vmmc_nmax) {
@@ -1627,14 +1116,6 @@ void FixVMMC::restart(char *buf)
   if (ntimestep_restart != update->ntimestep)
     error->all(FLERR,"Must not reset timestep when restarting fix vmmc");
 }
-
-void FixVMMC::grow_molecule_arrays(int nmolatoms) {
-    nmaxmolatoms = nmolatoms;
-    molcoords = memory->grow(molcoords,nmaxmolatoms,3,"vmmc:molcoords");
-    molq = memory->grow(molq,nmaxmolatoms,"vmmc:molq");
-    molimage = memory->grow(molimage,nmaxmolatoms,"vmmc:molimage");
-}
-
 
 /* ----------------------------------------------------------------------
    extract variable which stores whether MC is active or not

@@ -43,7 +43,7 @@ class FixVMMC : public Fix {
   int exclusion_group, exclusion_group_bit;
   int nvmmc_type, nevery, seed;
   int ncycles, nexchanges, nmcmoves;
-  double patomtrans, pmoltrans, pmolrotate, pmctot;
+  double patomtrans, pmctot;
   int ngas;                // # of gas atoms on all procs
   int ngas_local;          // # of gas atoms on this proc
   int ngas_before;         // # of gas atoms on procs < this proc
@@ -54,9 +54,6 @@ class FixVMMC : public Fix {
   bool pressure_flag;      // true if user specified reservoir pressure
   bool charge_flag;        // true if user specified atomic charge
   bool full_flag;          // true if doing full system energy calculations
-
-  int natoms_per_molecule;    // number of atoms in each inserted molecule
-  int nmaxmolatoms;           // number of atoms allocated for molecule arrays
 
   int groupbitall;            // group bitmask for inserted atoms
   int ngroups;                // number of group-ids for inserted atoms
@@ -89,9 +86,6 @@ class FixVMMC : public Fix {
   double *sublo, *subhi;
   int *local_gas_list;
   double **cutsq;
-  double **molcoords;
-  double *molq;
-  imageint *molimage;
   imageint imagezero;
   double overlap_cutoffsq;    // square distance cutoff for overlap
   int overlap_flag;
@@ -107,11 +101,6 @@ class FixVMMC : public Fix {
 
   class Atom *model_atom;
 
-  class Molecule **onemols;
-  int imol, nmol;
-  class Fix *fixrigid, *fixshake;
-  int rigidflag, shakeflag;
-  char *idrigid, *idshake;
   int triclinic;    // 0 = orthog box, 1 = triclinic
 
   class Compute *c_pe;
@@ -121,22 +110,16 @@ class FixVMMC : public Fix {
   void options(int, char **);
 
   void attempt_atomic_translation();
-  void attempt_molecule_translation();
-  void attempt_molecule_rotation();
   void attempt_atomic_translation_full();
-  void attempt_molecule_translation_full();
-  void attempt_molecule_rotation_full();
 
   double energy(int, int, tagint, double *);
   double energy_full();
-  double molecule_energy(tagint);
 
   int pick_random_gas_atom();
   tagint pick_random_gas_molecule();
   void toggle_intramolecular(int);
   void update_gas_atoms_list();
 
-  void grow_molecule_arrays(int);
 };
 
 }    // namespace LAMMPS_NS
