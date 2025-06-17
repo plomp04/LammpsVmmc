@@ -181,6 +181,7 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   callbacks.energyCallback = std::bind(&FixVMMC::energy_particle_vmmc, this, _1, _2, _3); 
   callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
   callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
+  callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
 
   // copy particle coordinates and orientations
   double coordinates[domain->dimension*atom->natoms];
@@ -903,7 +904,7 @@ double FixVMMC::energy_full()
 }
 
 /* ----------------------------------------------------------------------
-   compute the pair interaction between two particles for VMMC library
+   compute pair interaction between two particles for VMMC library
 ------------------------------------------------------------------------- */
 
 double FixVMMC::energy_pair_vmmc(
@@ -915,7 +916,7 @@ double FixVMMC::energy_pair_vmmc(
 }
 
 /* ----------------------------------------------------------------------
-   compute the total pair interaction energy of a particle for VMMC library
+   compute total pair interaction energy of a particle for VMMC library
 ------------------------------------------------------------------------- */
 
 double FixVMMC::energy_particle_vmmc(
@@ -935,6 +936,16 @@ unsigned int FixVMMC::interactions_vmmc(
   return 0;
 }
 
+
+/* ----------------------------------------------------------------------
+   post move update of atom coordinates and orientations
+------------------------------------------------------------------------- */
+
+void FixVMMC::post_move_vmmc(
+    unsigned int index, const double* pos, const double* orient)
+{
+  return;
+}
 
 /* ----------------------------------------------------------------------
 ------------------------------------------------------------------------- */
