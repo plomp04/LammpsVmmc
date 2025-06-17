@@ -181,6 +181,32 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   callbacks.energyCallback = std::bind(&FixVMMC::energy_particle_vmmc, this, _1, _2, _3); 
   callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
   callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
+
+  // copy particle coordinates and orientations
+  double coordinates[domain->dimension*atom->natoms];
+  double orientations[domain->dimension*atom->natoms];
+
+  for (unsigned int i=0; i<atom->natoms; i++) {
+    coordinates[domain->dimension*i + 0] = atom->x[i][0];
+    coordinates[domain->dimension*i + 1] = atom->x[i][1];
+    coordinates[domain->dimension*i + 2] = atom->x[i][2];
+
+    orientations[domain->dimension*i + 0] = 1.0;
+    orientations[domain->dimension*i + 1] = 0.0;
+    orientations[domain->dimension*i + 2] = 0.0;
+  }
+
+  unsigned int maxInteractions= 12; // assuming hcp or fcc packing
+  double boxSize[3];
+  boxSize[0] = domain->boxhi[0] - domain->boxlo[0];
+  boxSize[1] = domain->boxhi[1] - domain->boxlo[1];
+  boxSize[2] = domain->boxhi[2] - domain->boxlo[2];
+  bool *isIsotropic = 0;
+
+  // initialise the VMMC object
+  vmmc::VMMC vmmc(atom->natoms, domain->dimension, coordinates, orientations,
+      0.15, 0.2, 0.5, 0.5, maxInteractions, &boxSize[0], isIsotropic, true, callbacks);
+
 }
 
 /* ----------------------------------------------------------------------
