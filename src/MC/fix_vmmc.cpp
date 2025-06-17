@@ -173,6 +173,14 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
 
   vmmc_nmax = 0;
   local_gas_list = nullptr;
+
+  // initialise the VMMC callback functions
+  using namespace std::placeholders;
+  vmmc::CallbackFunctions callbacks;
+
+  callbacks.energyCallback = std::bind(&FixVMMC::energy_particle_vmmc, this, _1, _2, _3); 
+  callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
+  callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
 }
 
 /* ----------------------------------------------------------------------
@@ -867,6 +875,40 @@ double FixVMMC::energy_full()
 
   return total_energy;
 }
+
+/* ----------------------------------------------------------------------
+   compute the pair interaction between two particles for VMMC library
+------------------------------------------------------------------------- */
+
+double FixVMMC::energy_pair_vmmc(
+    unsigned int index1, const double* pos1, const double* orient1,
+    unsigned int index2, const double* pos2, const double* orient2)
+{
+  double total_energy = 0.0;
+  return total_energy;
+}
+
+/* ----------------------------------------------------------------------
+   compute the total pair interaction energy of a particle for VMMC library
+------------------------------------------------------------------------- */
+
+double FixVMMC::energy_particle_vmmc(
+    unsigned int index, const double* pos, const double* orient)
+{
+  double total_energy = 0.0;
+  return total_energy;
+}
+
+/* ----------------------------------------------------------------------
+   determine all interactions for a given particle for VMMC library
+------------------------------------------------------------------------- */
+
+unsigned int FixVMMC::interactions_vmmc(
+    unsigned int index, const double* pos, const double* orient, unsigned int* interact)
+{
+  return 0;
+}
+
 
 /* ----------------------------------------------------------------------
 ------------------------------------------------------------------------- */
