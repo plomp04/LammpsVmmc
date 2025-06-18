@@ -21,6 +21,7 @@ FixStyle(vmmc,FixVMMC);
 #define LMP_FIX_VMMC_H
 
 #include "fix.h"
+#include "VMMC.h"
 
 namespace LAMMPS_NS {
 

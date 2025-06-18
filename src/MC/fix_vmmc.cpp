@@ -53,6 +53,7 @@
 using namespace LAMMPS_NS;
 using namespace FixConst;
 using namespace MathConst;
+using namespace vmmc;
 
 // large energy value used to signal overlap
 
@@ -174,6 +175,7 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   vmmc_nmax = 0;
   local_gas_list = nullptr;
 
+
   // initialise the VMMC callback functions
   using namespace std::placeholders;
   vmmc::CallbackFunctions callbacks;
@@ -183,11 +185,13 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
   callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
 
-  // copy particle coordinates and orientations
+  // copy particle coordinates and orientations, set flag
   double coordinates[domain->dimension*atom->natoms];
   double orientations[domain->dimension*atom->natoms];
+  bool isIsotropic[atom->natoms];
 
   for (unsigned int i=0; i<atom->natoms; i++) {
+
     coordinates[domain->dimension*i + 0] = atom->x[i][0];
     coordinates[domain->dimension*i + 1] = atom->x[i][1];
     coordinates[domain->dimension*i + 2] = atom->x[i][2];
@@ -195,6 +199,9 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
     orientations[domain->dimension*i + 0] = 1.0;
     orientations[domain->dimension*i + 1] = 0.0;
     orientations[domain->dimension*i + 2] = 0.0;
+
+    isIsotropic[i] = false;
+
   }
 
   unsigned int maxInteractions= 12; // assuming hcp or fcc packing
@@ -202,11 +209,12 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   boxSize[0] = domain->boxhi[0] - domain->boxlo[0];
   boxSize[1] = domain->boxhi[1] - domain->boxlo[1];
   boxSize[2] = domain->boxhi[2] - domain->boxlo[2];
-  bool *isIsotropic = 0;
 
   // initialise the VMMC object
   vmmc::VMMC vmmc(atom->natoms, domain->dimension, coordinates, orientations,
       0.15, 0.2, 0.5, 0.5, maxInteractions, &boxSize[0], isIsotropic, true, callbacks);
+
+  vmmc.step();
 
 }
 
@@ -554,6 +562,8 @@ void FixVMMC::pre_exchange()
   // just return if should not be called on this timestep
 
   if (next_reneighbor != update->ntimestep) return;
+
+//  vmmc::vmmc.step();
 
   mc_active = 1;
 
@@ -911,6 +921,8 @@ double FixVMMC::energy_pair_vmmc(
     unsigned int index1, const double* pos1, const double* orient1,
     unsigned int index2, const double* pos2, const double* orient2)
 {
+
+  printf("ENERGY PAIR\n");
   double total_energy = 0.0;
   return total_energy;
 }
@@ -922,6 +934,7 @@ double FixVMMC::energy_pair_vmmc(
 double FixVMMC::energy_particle_vmmc(
     unsigned int index, const double* pos, const double* orient)
 {
+  printf("ENERGY PARTICLE\n");
   double total_energy = 0.0;
   return total_energy;
 }
@@ -933,6 +946,7 @@ double FixVMMC::energy_particle_vmmc(
 unsigned int FixVMMC::interactions_vmmc(
     unsigned int index, const double* pos, const double* orient, unsigned int* interact)
 {
+  printf("INTERACTIONS\n");
   return 0;
 }
 
