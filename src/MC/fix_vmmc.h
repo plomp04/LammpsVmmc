@@ -21,6 +21,7 @@ FixStyle(vmmc,FixVMMC);
 #define LMP_FIX_VMMC_H
 
 #include "fix.h"
+#include "VMMC.h"
 
 namespace LAMMPS_NS {
 
@@ -36,6 +37,7 @@ class FixVMMC : public Fix {
   void write_restart(FILE *) override;
   void restart(char *) override;
   void *extract(const char *, int &) override;
+  vmmc::VMMC *vmmc; // libVMMC
 
  private:
   int exclusion_group, exclusion_group_bit;
@@ -113,9 +115,17 @@ class FixVMMC : public Fix {
   tagint pick_random_gas_molecule();
   void update_gas_atoms_list();
 
+  // VMMC routines
+  double energy_pair_vmmc(unsigned int, const double*, const double*,
+                          unsigned int, const double*, const double*);
+  double energy_particle_vmmc(unsigned int, const double*, const double*);
+  unsigned int interactions_vmmc(unsigned int, const double*, const double*, unsigned int*);
+  void post_move_vmmc(unsigned int, const double*, const double*);
+
 };
 
 }    // namespace LAMMPS_NS
+
 
 #endif
 #endif
