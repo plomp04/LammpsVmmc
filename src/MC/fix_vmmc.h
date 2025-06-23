@@ -31,6 +31,7 @@ class FixVMMC : public Fix {
   ~FixVMMC() override;
   int setmask() override;
   void init() override;
+  void init_list(int, class NeighList *) override;
   void pre_exchange() override;
   double memory_usage() override;
   void write_restart(FILE *) override;
@@ -61,8 +62,7 @@ class FixVMMC : public Fix {
 
   int vmmc_nmax;
   int max_region_attempts;
-  double reservoir_temperature;
-  double tfac_insert;
+  double temperature;
   double max_translate, max_rotate;
   double beta;
   double volume, pressure;
@@ -74,16 +74,9 @@ class FixVMMC : public Fix {
   double overlap_cutoffsq;    // square distance cutoff for overlap
   int overlap_flag;
 
-  class Pair *pair;
-
   class RanPark *random_equal;
   class RanPark *random_unequal;
-
-  class Atom *model_atom;
-
-  class Compute *c_pe;
-
-  // private methods
+  class NeighList *list;
 
   void options(int, char **);
 
