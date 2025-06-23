@@ -22,25 +22,21 @@
 #include "VMMC.h"
 #include "MersenneTwister.h"
 
-#include "angle.h"
 #include "atom.h"
 #include "atom_vec.h"
 #include "bond.h"
 #include "comm.h"
-#include "compute.h"
-#include "dihedral.h"
 #include "domain.h"
 #include "error.h"
 #include "fix.h"
 #include "force.h"
 #include "group.h"
-#include "improper.h"
-#include "kspace.h"
 #include "math_const.h"
 #include "math_extra.h"
 #include "memory.h"
 #include "modify.h"
 #include "neighbor.h"
+#include "neigh_list.h"
 #include "pair.h"
 #include "random_park.h"
 #include "region.h"
@@ -49,6 +45,7 @@
 #include <cmath>
 #include <cstring>
 #include <exception>
+#include <cassert>
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -73,7 +70,7 @@ enum { NONE, MOVEATOM };    // movemode
 FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
     Fix(lmp, narg, arg), region(nullptr), idregion(nullptr), groupstrings(nullptr),
     grouptypestrings(nullptr), grouptypebits(nullptr), grouptypes(nullptr),
-    random_equal(nullptr), random_unequal(nullptr)
+    random_equal(nullptr), random_unequal(nullptr), list(nullptr)
 {
   if (narg < 10) utils::missing_cmd_args(FLERR, "fix vmmc", error);
 
@@ -98,14 +95,14 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
   nvmmcmoves = utils::inumeric(FLERR, arg[4], false, lmp);
   nvmmc_type = utils::expand_type_int(FLERR, arg[5], Atom::ATOM, lmp);
   seed = utils::inumeric(FLERR, arg[6], false, lmp);
-  reservoir_temperature = utils::numeric(FLERR, arg[7], false, lmp);
+  temperature = utils::numeric(FLERR, arg[7], false, lmp);
   max_translate = utils::numeric(FLERR, arg[8], false, lmp);
   max_rotate = utils::numeric(FLERR, arg[9], false, lmp);
 
   if (nevery <= 0) error->all(FLERR, "Illegal fix vmmc command");
   if (nvmmcmoves < 0) error->all(FLERR, "Illegal fix vmmc command");
   if (seed <= 0) error->all(FLERR, "Illegal fix vmmc command");
-  if (reservoir_temperature < 0.0)
+  if (temperature < 0.0)
     error->all(FLERR, "Illegal fix vmmc command");
   if (max_translate < 0.0) error->all(FLERR, "Illegal fix vmmc command");
 
@@ -199,7 +196,6 @@ void FixVMMC::options(int narg, char **arg)
   grouptypestrings = nullptr;
   grouptypes = nullptr;
   grouptypebits = nullptr;
-  tfac_insert = 1.0;
   overlap_cutoffsq = 0.0;
   overlap_flag = 0;
 
@@ -252,10 +248,6 @@ void FixVMMC::options(int narg, char **arg)
       grouptypestrings[ngrouptypes] = utils::strdup(arg[iarg+2]);
       ngrouptypes++;
       iarg += 3;
-    } else if (strcmp(arg[iarg],"tfac_insert") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
-      tfac_insert = utils::numeric(FLERR,arg[iarg+1],false,lmp);
-      iarg += 2;
     } else if (strcmp(arg[iarg],"overlap_cutoff") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix vmmc command");
       double rtmp = utils::numeric(FLERR,arg[iarg+1],false,lmp);
@@ -383,7 +375,7 @@ void FixVMMC::init()
   }
 
   // compute beta
-  beta = 1.0/(force->boltz*reservoir_temperature);
+  beta = 1.0/(force->boltz*temperature);
 
   imagezero = ((imageint) IMGMAX << IMG2BITS) |
              ((imageint) IMGMAX << IMGBITS) | IMGMAX;
@@ -418,6 +410,18 @@ void FixVMMC::init()
     }
   }
 
+  // need a full neighbor list, built every Nevery steps
+  neighbor->add_request(this, NeighConst::REQ_FULL);
+
+}
+
+/* ----------------------------------------------------------------------
+   neighbor callback to inform pair style of neighbor list to use regular
+------------------------------------------------------------------------- */
+
+void FixVMMC::init_list(int id, NeighList *ptr)
+{
+  list = ptr;
 }
 
 /* ----------------------------------------------------------------------
@@ -516,7 +520,31 @@ double FixVMMC::energy_particle_vmmc(
 unsigned int FixVMMC::interactions_vmmc(
     unsigned int index, const double* pos, const double* orient, unsigned int* interact)
 {
+  int i, j, ii, jj, inum, jnum;
+  int *ilist, *jlist, *numneigh, **firstneigh;
+
+  inum = list->inum; // number of atoms i for which neighbour lists are held
+  ilist = list->ilist; // local index of atom i
+  numneigh = list->numneigh; // number of neighbours j of atom i
+  firstneigh = list->firstneigh; // pointer to 1st neighbour j of atom i
+
   printf("INTERACTIONS\n");
+  for (ii=0; ii<inum; ii++) {
+
+    i = ilist[ii]; // assign local index of i
+    jnum = numneigh[i]; // obtain number of neighbours of i
+    jlist = firstneigh[i]; // obtain pointer to 1st neighbour j
+
+    printf("%d %d  ", atom->tag[i], jnum); // print global ID of atom i and number of neighbours j
+
+    for (jj=0; jj<jnum; jj++) { // loop over number of neighbours j
+      j = jlist[jj]; // assign logal index of j
+      j &= NEIGHMASK; // ???
+      printf("%d ", atom->tag[j]); // print global ID of atom j
+    }
+    printf("\n");
+  }
+
   return 0;
 }
 
