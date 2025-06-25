@@ -528,19 +528,19 @@ unsigned int FixVMMC::interactions_vmmc(
   numneigh = list->numneigh; // number of neighbours j of atom i
   firstneigh = list->firstneigh; // pointer to 1st neighbour j of atom i
 
-  printf("INTERACTIONS\n");
+  printf("INTERACTIONS index = %d\n", index);
   for (ii=0; ii<inum; ii++) {
 
     i = ilist[ii]; // assign local index of i
     jnum = numneigh[i]; // obtain number of neighbours of i
     jlist = firstneigh[i]; // obtain pointer to 1st neighbour j
 
-    printf("%d %d  ", atom->tag[i], jnum); // print global ID of atom i and number of neighbours j
+    printf("i = %d  atom->tag[i] = %d  atom->map(atom->tag[i]) = %d  jnum = %d ", i, atom->tag[i], atom->map(atom->tag[i]), jnum); // print global ID of atom i and number of neighbours j
 
     for (jj=0; jj<jnum; jj++) { // loop over number of neighbours j
       j = jlist[jj]; // assign logal index of j
       j &= NEIGHMASK; // ???
-      printf("%d ", atom->tag[j]); // print global ID of atom j
+      printf("j = %d   atom->tag[j] = %d  atom->map(atom->tag[j]) = %d", j, atom->tag[j], atom->map(atom->tag[j])); // print global ID of atom j
     }
     printf("\n");
   }
