@@ -493,12 +493,46 @@ void FixVMMC::pre_exchange()
 
 double FixVMMC::energy_pair_vmmc(
     unsigned int index1, const double* pos1, const double* orient1,
-    unsigned int index2, const double* pos2, const double* orient2)
-{
-
-  printf("ENERGY PAIR\n");
+    unsigned int index2, const double* pos2, const double* orient2){   
+  
+  double pair_e = 0;
+  double sigma = 1.0;
+  double epsilon=1.0;
+  double rsqrd = 0;
+  double r6 = 0;
+  double invr6 =0;
   double total_energy = 0.0;
-  return total_energy;
+  double sig3 = 0;
+  
+  std::vector<double> sep = {0,0,0};
+  
+  //calculate separation distance
+  for(int i=0; i<3; i++){
+
+    sep[i]=pos2[i]-pos1[i];
+    
+    rsqrd +=sep[i]*sep[i];
+
+  }
+    
+  //check if particles are close enough to interact
+  //if close enough, calculate interaction energy
+
+  if(rsqrd<2.5*2.5){
+
+    r6 = rsqrd*rsqrd*rsqrd;
+    
+    invr6 =1/r6;
+
+    sig3 =sigma*sigma*sigma;
+    
+    total_energy += 4*epsilon*((sigma*sigma*sigma*sigma*invr6*invr6)-(sigma*sigma*invr6));
+
+    return total_energy;
+
+  }
+  else return 0;
+  
 }
 
 /* ----------------------------------------------------------------------
@@ -506,16 +540,115 @@ double FixVMMC::energy_pair_vmmc(
 ------------------------------------------------------------------------- */
 
 double FixVMMC::energy_particle_vmmc(
-    unsigned int index, const double* pos, const double* orient)
-{
+    unsigned int index, const double* pos, const double* orient){
+  int i, j, ii, jj, inum, jnum;
+  int *ilist, *jlist, *numneigh, **firstneigh;
+  
+  //interaction parameters
+  double total_energy = 0;
+  double sigma = 2.5;
+  double epsilon=1.0;
+
+  //interaction parameters 
+
+  inum = list->inum; // number of atoms i for which neighbour lists are held
+  ilist = list->ilist; // local index of atom i
+  numneigh = list->numneigh; // number of neighbours j of atom i
+  firstneigh = list->firstneigh; // pointer to 1st neighbour j of atom i
+ 
+  for (ii=0; ii<inum; ii++){
+
+    i = ilist[ii]; // assign local index of i
+    jnum = numneigh[i]; // obtain number of neighbours of i
+    jlist = firstneigh[i]; // obtain pointer to 1st neighbour j
+
+    for(jj=0; jj<jnum; jj++){ // loop over number of neighbours j
+      j = jlist[jj]; // assign logal index of j
+      j &= NEIGHMASK; // ???
+    }
+  }
+  //get correct ids
+  int global_lammps, localIndex, jnumloc, localJ, globaljminus, globalj;
+ 
+  global_lammps = index+1;
+
+  localIndex = atom->map(global_lammps);
+
+  jnumloc = numneigh[localIndex];
+  
+  std::vector<double> neighbours;
+
+ for (int jj = 0; jj<jnumloc; jj++) {
+    localJ = firstneigh[localIndex][jj];
+    
+    globaljminus = atom->tag[localJ];
+    
+    globalj = globaljminus-1;
+
+    neighbours.push_back(globalj);
+
+  }
+
+  std::vector<double> posIndex = {0,0,0}; //position of partcile with passed in index
+
+  for (int i=0; i<3; i++){
+
+    posIndex[i]=pos[index*3+i]; //get position of index from pos array 
+
+  }
+  
+
+  //main energy cacluation loop
+
+  for (int j =0; j<jnumloc; j++){
+
+    std::vector<double> posj = {0,0,0};
+    std::vector<double> sep = {0,0,0};
+    double sepsqrd = 0;
+    double r6 = 0;
+    double invr6 =0;
+    double sig3 = 0;
+
+    int jindex = neighbours[j];
+
+    for(i=0;i<3;i++){
+      
+      posj[i]=pos[jindex*3+i]; //get j positions
+
+      sep[i]=posj[i]-posIndex[i]; // get separation distance
+
+      sepsqrd += sep[i]*sep[i]; // get separation squared  
+
+    }
+
+    sig3 =sigma*sigma*sigma;
+    
+    
+    r6 = sepsqrd*sepsqrd*sepsqrd;
+    
+    invr6 =1/r6;
+
+    total_energy += 4*epsilon*((sigma*sigma*sigma*sigma*invr6*invr6)-(sigma*sigma*invr6));
+
+  }
+
+
+
+
   printf("ENERGY PARTICLE\n");
-  double total_energy = 0.0;
+  printf("%lf",total_energy);
   return total_energy;
 }
 
 /* ----------------------------------------------------------------------
    determine all interactions for a given particle for VMMC library
 ------------------------------------------------------------------------- */
+
+
+
+
+
+
 
 unsigned int FixVMMC::interactions_vmmc(
     unsigned int index, const double* pos, const double* orient, unsigned int* interact)
@@ -528,24 +661,56 @@ unsigned int FixVMMC::interactions_vmmc(
   numneigh = list->numneigh; // number of neighbours j of atom i
   firstneigh = list->firstneigh; // pointer to 1st neighbour j of atom i
 
-  printf("INTERACTIONS index = %d\n", index);
+  //printf("INTERACTIONS index = %d\n", index);
   for (ii=0; ii<inum; ii++) {
 
     i = ilist[ii]; // assign local index of i
     jnum = numneigh[i]; // obtain number of neighbours of i
     jlist = firstneigh[i]; // obtain pointer to 1st neighbour j
 
-    printf("i = %d  atom->tag[i] = %d  atom->map(atom->tag[i]) = %d  jnum = %d ", i, atom->tag[i], atom->map(atom->tag[i]), jnum); // print global ID of atom i and number of neighbours j
+    //printf("i = %d  atom->tag[i] = %d  atom->map(atom->tag[i]) = %d  jnum = %d ", i, atom->tag[i], atom->map(atom->tag[i]), jnum); // print global ID of atom i and number of neighbours j
 
     for (jj=0; jj<jnum; jj++) { // loop over number of neighbours j
       j = jlist[jj]; // assign logal index of j
       j &= NEIGHMASK; // ???
-      printf("j = %d   atom->tag[j] = %d  atom->map(atom->tag[j]) = %d", j, atom->tag[j], atom->map(atom->tag[j])); // print global ID of atom j
+      //printf("j = %d   atom->tag[j] = %d  atom->map(atom->tag[j]) = %d", j, atom->tag[j], atom->map(atom->tag[j])); // print global ID of atom j
     }
-    printf("\n");
+    //printf("\n");
   }
 
-  return 0;
+  //get correct ids
+ int global_lammps, localIndex, jnumloc, localJ, globaljminus, globalj;
+ 
+ 
+ 
+ 
+ global_lammps = index+1;
+
+ localIndex = atom->map(global_lammps);
+ //printf("local i of index %d local i of index", localIndex, index);
+
+ jnumloc = numneigh[localIndex];
+
+
+ for (int jj = 0; jj<jnumloc; jj++) {
+    localJ = firstneigh[localIndex][jj];
+    globaljminus = atom->tag[localJ];
+    globalj = globaljminus-1;
+    interact[jj]=globalj;
+
+    //printf("\nlocalj ");
+   // printf(" %d ",localJ);
+    //printf(" localj\n");
+    
+    //printf("\nglobalj ");
+   // printf(" %d ",globalj);
+   // printf(" globalj\n");
+
+ }
+
+  return jnumloc;
+    
+  
 }
 
 

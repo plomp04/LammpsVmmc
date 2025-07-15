@@ -226,21 +226,25 @@ namespace vmmc
     void VMMC::step(const int nSteps)
     {
         for (int i=0;i<nSteps;i++)
+            printf("doing vmmc:: step w constant");
             step();
     }
 
     void VMMC::operator ++ (const int)
     {
+        printf("doing vmmc:: step w operator++");
         step();
     }
 
     void VMMC::operator += (const int nSteps)
     {
+        printf("doing vmmc:: step w +=");
         step(nSteps);
     }
 
     void VMMC::step()
     {
+        printf("doing vmmc:: step function");
         // Increment number of attempted moves.
         nAttempts++;
 
