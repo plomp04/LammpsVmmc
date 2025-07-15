@@ -466,7 +466,7 @@ void FixVMMC::pre_exchange()
 
   }
 
-  unsigned int maxInteractions= 12; // assuming hcp or fcc packing
+  unsigned int maxInteractions= 1000; // assuming hcp or fcc packing
   double boxSize[3];
   boxSize[0] = domain->boxhi[0] - domain->boxlo[0];
   boxSize[1] = domain->boxhi[1] - domain->boxlo[1];
@@ -496,8 +496,8 @@ double FixVMMC::energy_pair_vmmc(
     unsigned int index2, const double* pos2, const double* orient2){   
   
   double pair_e = 0;
-  double sigma = 1.0;
-  double epsilon=1.0;
+  double sigma = 0.5;
+  double epsilon=2.0;
   double rsqrd = 0;
   double r6 = 0;
   double invr6 =0;
@@ -526,13 +526,14 @@ double FixVMMC::energy_pair_vmmc(
 
     sig3 =sigma*sigma*sigma;
     
-    total_energy += 4*epsilon*((sigma*sigma*sigma*sigma*invr6*invr6)-(sigma*sigma*invr6));
-
-    return total_energy;
+    total_energy += 4*epsilon*((sig3*sig3*sig3*sig3*invr6*invr6)-(sig3*sig3*invr6));
 
   }
-  else return 0;
-  
+
+//  printf("ENERGY PAIR %d %d  %le\n", index1, index2, total_energy);
+
+  return total_energy;
+
 }
 
 /* ----------------------------------------------------------------------
@@ -633,22 +634,14 @@ double FixVMMC::energy_particle_vmmc(
   }
 
 
+//  printf("ENERGY PARTICLE %d %le\n",index,total_energy);
 
-
-  printf("ENERGY PARTICLE\n");
-  printf("%lf",total_energy);
   return total_energy;
 }
 
 /* ----------------------------------------------------------------------
    determine all interactions for a given particle for VMMC library
 ------------------------------------------------------------------------- */
-
-
-
-
-
-
 
 unsigned int FixVMMC::interactions_vmmc(
     unsigned int index, const double* pos, const double* orient, unsigned int* interact)
@@ -707,6 +700,12 @@ unsigned int FixVMMC::interactions_vmmc(
    // printf(" globalj\n");
 
  }
+
+  printf("%d %d  ",index,jnumloc);
+  for (int jj = 0; jj<jnumloc; jj++) {
+    printf("%d ",interact[jj]);
+  }
+  printf("\n");
 
   return jnumloc;
     
