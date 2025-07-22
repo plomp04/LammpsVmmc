@@ -74,6 +74,7 @@ class FixVMMC : public Fix {
   double overlap_cutoffsq;    // square distance cutoff for overlap
   int overlap_flag;
 
+  class Pair *pair;
   class RanPark *random_equal;
   class RanPark *random_unequal;
   class NeighList *list;
@@ -83,7 +84,6 @@ class FixVMMC : public Fix {
   // VMMC routines
   double energy_pair_vmmc(unsigned int, const double*, const double*,
                           unsigned int, const double*, const double*);
-  double energy_particle_vmmc(unsigned int, const double*, const double*);
   unsigned int interactions_vmmc(unsigned int, const double*, const double*, unsigned int*);
   void post_move_vmmc(unsigned int, const double*, const double*);
 

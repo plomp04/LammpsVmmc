@@ -208,18 +208,18 @@ namespace vmmc
         if (callbacks.boundaryCallback == nullptr) callbacks.isCustomBoundary = false;
         else callbacks.isCustomBoundary = true;
 
-        std::cout << "Initialised VMMC";
+//        std::cout << "Initialised VMMC";
 #ifdef ISOTROPIC
-        std::cout << " (isotropic)";
+//        std::cout << " (isotropic)";
 #endif
-        std::cout << ".\nseed\t" << rng.getSeed() << '\n';
+//        std::cout << ".\nseed\t" << rng.getSeed() << '\n';
         // Print version info.
 #ifdef COMMIT
-        std::cout << "commit\t" << COMMIT << '\n';
+//        std::cout << "commit\t" << COMMIT << '\n';
 #endif
         // Print branch info.
 #ifdef BRANCH
-        std::cout << "branch\t" << BRANCH << '\n';
+//        std::cout << "branch\t" << BRANCH << '\n';
 #endif
     }
 
