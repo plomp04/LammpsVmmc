@@ -504,47 +504,52 @@ double FixVMMC::energy_pair_vmmc(
     unsigned int index1, const double* pos1, const double* orient1,
     unsigned int index2, const double* pos2, const double* orient2){   
   
-  double pair_e = 0;
-  double sigma = 1.0;
-  double epsilon=2.0;
-  double rc=2.5;
-  double rsqrd = 0;
-  double r6 = 0;
-  double invr6 =0;
+  int i;
+  int *type = atom->type;
+  pair = force->pair;
+  cutsq = force->pair->cutsq;
+  double rsq;
+
+  double fpair = 0.0;
+  double factor_coul = 0.0;
+  double factor_lj = 1.0;
+
+  std::vector<double> delr = {0,0,0};
   double total_energy = 0.0;
-  double sig3 = 0;
-  double shift = pow(1/rc,12)-pow(1/rc,6); 
- 
-  std::vector<double> sep = {0,0,0};
-  
+
+  // local indices
+  int i1 = atom->map(index1+1);
+  int i2 = atom->map(index2+1);
+
+  int i1type = type[i1];
+  int i2type = type[i2];
+
   //calculate separation distance
-  for(int i=0; i<3; i++){
-
-    sep[i]=pos2[i]-pos1[i];
-    
-    rsqrd +=sep[i]*sep[i];
-
-  }
-    
-  //check if particles are close enough to interact
-  //if close enough, calculate interaction energy
-
-  if(rsqrd<2.5*2.5){
-
-    r6 = rsqrd*rsqrd*rsqrd;
-    
-    invr6 =1/r6;
-
-    sig3 =sigma*sigma*sigma;
-    
-    total_energy += 4*epsilon*((sig3*sig3*sig3*sig3*invr6*invr6)-(sig3*sig3*invr6)- shift);
-
+  for(i=0; i<3; i++){
+    delr[i]=pos1[i]-pos2[i];
   }
 
-//  printf("ENERGY PAIR %d %d  %15.8le  %8.4g %8.4g %8.4g  %8.4g %8.4g %8.4g\n", index1, index2, total_energy, pos1[0],pos1[1],pos1[2],pos2[0],pos2[1],pos2[2]);
+  //enforce minimum image
+  for (i=0;i<3;i++) {
+    if (delr[i] < -0.5*domain->boxhi[i]) delr[i] += domain->boxhi[i];
+    if (delr[i] >= 0.5*domain->boxhi[i]) delr[i] -= domain->boxhi[i];
+  }
 
+  for(i=0; i<3; i++){
+    rsq +=delr[i]*delr[i];
+  }
+    
+  // calculate pair energy if within cutoff
+  if(rsq < cutsq[i1type][i2type]){
+    total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair);
+  }
+
+/*
+  printf("ENERGY PAIR %d %d   %d %d   %le\n", index1, index2, i1, i2, total_energy);
+  printf("POS LMP     %8.4g %8.4g %8.4g  %8.4g %8.4g %8.4g\n", x[i1][0],x[i1][1],x[i1][2], x[i2][0],x[i2][1],x[i2][2]);
+  printf("POS VMMC    %8.4g %8.4g %8.4g  %8.4g %8.4g %8.4g\n", pos1[0],pos1[1],pos1[2], pos2[0],pos2[1],pos2[2]);
+*/
   return total_energy;
-
 }
 
 
@@ -584,10 +589,7 @@ unsigned int FixVMMC::interactions_vmmc(
   printf("\n");
 */
   return jnum;
-    
-  
 }
-
 
 /* ----------------------------------------------------------------------
    post move update of atom coordinates and orientations

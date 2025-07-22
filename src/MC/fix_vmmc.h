@@ -74,6 +74,7 @@ class FixVMMC : public Fix {
   double overlap_cutoffsq;    // square distance cutoff for overlap
   int overlap_flag;
 
+  class Pair *pair;
   class RanPark *random_equal;
   class RanPark *random_unequal;
   class NeighList *list;
