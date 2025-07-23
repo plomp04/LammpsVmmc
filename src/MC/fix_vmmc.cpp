@@ -448,7 +448,6 @@ void FixVMMC::pre_exchange()
   using namespace std::placeholders;
   vmmc::CallbackFunctions callbacks;
 
-//  callbacks.energyCallback = std::bind(&FixVMMC::energy_particle_vmmc, this, _1, _2, _3); 
   callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
   callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
   callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
