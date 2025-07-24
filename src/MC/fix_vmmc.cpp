@@ -118,6 +118,12 @@ FixVMMC::FixVMMC(LAMMPS *lmp, int narg, char **arg) :
 
   random_unequal = new RanPark(lmp,seed);
 
+  // error check on lower box boundaries
+
+  if (domain->boxlo[0] != 0.0 || domain->boxlo[1] != 0.0 || domain->boxlo[2] != 0.0) {
+    error->all(FLERR,"Fix vmmc requires box boundaries xlo = ylo = zlo = 0.0");
+  }
+
   // error checks on region and its extent being inside simulation box
 
   region_xlo = region_xhi = region_ylo = region_yhi = region_zlo = region_zhi = 0.0;
@@ -442,7 +448,6 @@ void FixVMMC::pre_exchange()
   using namespace std::placeholders;
   vmmc::CallbackFunctions callbacks;
 
-//  callbacks.energyCallback = std::bind(&FixVMMC::energy_particle_vmmc, this, _1, _2, _3); 
   callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
   callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
   callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
@@ -477,9 +482,9 @@ void FixVMMC::pre_exchange()
 
   unsigned int maxInteractions= 1000;
   double boxSize[3];
-  boxSize[0] = domain->boxhi[0] - domain->boxlo[0];
-  boxSize[1] = domain->boxhi[1] - domain->boxlo[1];
-  boxSize[2] = domain->boxhi[2] - domain->boxlo[2];
+  boxSize[0] = domain->boxhi[0];
+  boxSize[1] = domain->boxhi[1];
+  boxSize[2] = domain->boxhi[2];
 
   // initialise the VMMC object
   vmmc = new VMMC(atom->natoms, domain->dimension, coordinates, orientations,
@@ -525,30 +530,23 @@ double FixVMMC::energy_pair_vmmc(
   int i2type = type[i2];
 
   //calculate separation distance
-  for(i=0; i<3; i++){
-    delr[i]=pos1[i]-pos2[i];
-  }
+  delr[0] = pos1[0]-pos2[0];
+  delr[1] = pos1[1]-pos2[1];
+  delr[2] = pos1[2]-pos2[2];
 
-  //enforce minimum image
+  // using libVMMC coordinates, hence enforce minimum image
   for (i=0;i<3;i++) {
     if (delr[i] < -0.5*domain->boxhi[i]) delr[i] += domain->boxhi[i];
     if (delr[i] >= 0.5*domain->boxhi[i]) delr[i] -= domain->boxhi[i];
   }
 
-  for(i=0; i<3; i++){
-    rsq +=delr[i]*delr[i];
-  }
+  rsq = delr[0]*delr[0] + delr[1]*delr[1] + delr[2]*delr[2];
     
   // calculate pair energy if within cutoff
   if(rsq < cutsq[i1type][i2type]){
     total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair);
   }
 
-/*
-  printf("ENERGY PAIR %d %d   %d %d   %le\n", index1, index2, i1, i2, total_energy);
-  printf("POS LMP     %8.4g %8.4g %8.4g  %8.4g %8.4g %8.4g\n", x[i1][0],x[i1][1],x[i1][2], x[i2][0],x[i2][1],x[i2][2]);
-  printf("POS VMMC    %8.4g %8.4g %8.4g  %8.4g %8.4g %8.4g\n", pos1[0],pos1[1],pos1[2], pos2[0],pos2[1],pos2[2]);
-*/
   return total_energy;
 }
 
@@ -563,31 +561,24 @@ unsigned int FixVMMC::interactions_vmmc(
   int i, j, ii, jj, inum, jnum;
   int *ilist, *jlist, *numneigh, **firstneigh;
 
-  inum = list->inum; // number of atoms i for which neighbour lists are held
-  ilist = list->ilist; // local index of atom i
-  numneigh = list->numneigh; // number of neighbours j of atom i
-  firstneigh = list->firstneigh; // pointer to 1st neighbour j of atom i
+  inum = list->inum;
+  ilist = list->ilist;
+  numneigh = list->numneigh;
+  firstneigh = list->firstneigh;
 
-  i = atom->map(index+1);
-  jnum = numneigh[i];
-  jlist = firstneigh[i];
+  i = atom->map(index+1); // work out local index
+  jnum = numneigh[i]; // determine number of neighbors
+  jlist = firstneigh[i]; // pointer to first neighbor
 
   for (jj=0; jj<jnum; jj++) {
 
     j = jlist[jj];
     j &= NEIGHMASK;
 
-    interact[jj]=atom->tag[j]-1; // work out libVMMC index
+    interact[jj]=atom->tag[j]-1; // work out libVMMC index and store
 
   }
 
-/*
-  printf("INDEX %d %d  ",index,jnum);
-  for (int jj = 0; jj<jnum; jj++) {
-    printf("%d ",interact[jj]);
-  }
-  printf("\n");
-*/
   return jnum;
 }
 
@@ -600,6 +591,7 @@ void FixVMMC::post_move_vmmc(
 {
   int i = atom->map(index+1); // work out local index
 
+  // move libVMMC coordinates into coordinate array
   atom->x[i][0] = pos[0];
   atom->x[i][1] = pos[1];
   atom->x[i][2] = pos[2];
