@@ -302,6 +302,7 @@ FixVMMC::~FixVMMC()
     }
   }
 
+  delete vmmc;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -419,6 +420,47 @@ void FixVMMC::init()
   // need a full neighbor list, built every Nevery steps
   neighbor->add_request(this, NeighConst::REQ_FULL);
 
+  // initialise the VMMC callback functions
+  using namespace std::placeholders;
+  vmmc::CallbackFunctions callbacks;
+
+  callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
+  callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
+  callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
+
+  double coordinates[domain->dimension*atom->natoms];
+  double orientations[domain->dimension*atom->natoms];
+  bool isIsotropic[atom->natoms];
+
+  // set dummy particle coordinates and orientations for VMMC object initialization
+  // coordinates and orientations are set in pre_exchange() prior to VMMC move 
+  for (int ii=0; ii<atom->natoms; ii++) {
+
+    coordinates[domain->dimension*ii + 0] = 0.0;
+    coordinates[domain->dimension*ii + 1] = 0.0;
+    coordinates[domain->dimension*ii + 2] = 0.0;
+
+    orientations[domain->dimension*ii + 0] = 1.0;
+    orientations[domain->dimension*ii + 1] = 0.0;
+    orientations[domain->dimension*ii + 2] = 0.0;
+
+    isIsotropic[ii] = true; // set isotropy flag
+
+  }
+
+  unsigned int maxInteractions= 1000;
+  double boxSize[3];
+  boxSize[0] = domain->boxhi[0];
+  boxSize[1] = domain->boxhi[1];
+  boxSize[2] = domain->boxhi[2];
+
+  // initialize the VMMC object
+  vmmc = new VMMC(atom->natoms, domain->dimension, coordinates, orientations,
+      max_translate, max_rotate, 0.5, 0.5, maxInteractions, &boxSize[0], isIsotropic, true, callbacks);
+
+  vmmc->rng.setSeed(seed);
+  printf("\nVMMC seed %d\n",  vmmc->rng.getSeed());
+
 }
 
 /* ----------------------------------------------------------------------
@@ -444,18 +486,9 @@ void FixVMMC::pre_exchange()
 
   mc_active = 1;
 
-  // initialise the VMMC callback functions
-  using namespace std::placeholders;
-  vmmc::CallbackFunctions callbacks;
 
-  callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
-  callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
-  callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
-
-  // copy particle coordinates and orientations, set flag
   double coordinates[domain->dimension*atom->natoms];
   double orientations[domain->dimension*atom->natoms];
-  bool isIsotropic[atom->natoms];
 
   int i, ii, inum, id_vmmc;
   int *ilist;
@@ -463,6 +496,7 @@ void FixVMMC::pre_exchange()
   inum = list->inum; // number of atoms i for which neighbour lists are held
   ilist = list->ilist; // local index of atom i
 
+  // copy particle coordinates and orientations
   for (ii=0; ii<inum; ii++) {
 
     i = ilist[ii]; // assign local index to i
@@ -476,24 +510,13 @@ void FixVMMC::pre_exchange()
     orientations[domain->dimension*id_vmmc + 1] = 0.0;
     orientations[domain->dimension*id_vmmc + 2] = 0.0;
 
-    isIsotropic[id_vmmc] = true;
-
   }
 
-  unsigned int maxInteractions= 1000;
-  double boxSize[3];
-  boxSize[0] = domain->boxhi[0];
-  boxSize[1] = domain->boxhi[1];
-  boxSize[2] = domain->boxhi[2];
-
-  // initialise the VMMC object
-  vmmc = new VMMC(atom->natoms, domain->dimension, coordinates, orientations,
-      max_translate, max_rotate, 0.5, 0.5, maxInteractions, &boxSize[0], isIsotropic, true, callbacks);
+  vmmc->setPositions(coordinates);
+  vmmc->setOrientations(orientations);
 
   // perform nvmmcmoves VMMC trial moves
   vmmc->step(nvmmcmoves);
-
-  delete vmmc;
 
   next_reneighbor = update->ntimestep + nevery;
 

@@ -321,6 +321,20 @@ namespace vmmc
         */
         const std::vector<unsigned long long>& getClusterRotations() const;
 
+        //! Set the particle positions.
+        /*! \param coordinates
+                The coordinates of all particles in the system.
+        */
+        void setPositions(double*);
+
+        //! Set the particle orientations.
+        /*! \param orientations
+                The orientations of all particles in the system.
+        */
+#ifndef ISOTROPIC
+        void setOrientations(double*);
+#endif
+
         //! Reset statistics.
         void reset();
 
