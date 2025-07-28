@@ -261,10 +261,12 @@ namespace vmmc
 
         // Move hasn't been aborted.
         if (!isEarlyExit)
+
         {
             // Check for acceptance and apply move.
             if (accept())
             {
+printf("ACCEPTED!\n");
                 // Increment number of accepted moves.
                 nAccepts++;
 
@@ -277,10 +279,13 @@ namespace vmmc
             }
             else
             {
+printf("REJECTED!\n");
                 // Undo move.
                 if (!isEarlyExit) swapMoveStatus();
             }
         }
+
+printf("RESETTING\n");
 
         // Reset the move list.
         for (unsigned int i=0;i<nMoving;i++) particles[moveList[i]].isMoving = false;
@@ -294,6 +299,8 @@ namespace vmmc
             for (unsigned int i=0;i<nInteractions;i++)
                 pairEnergyMatrix[interactions[i][0]][interactions[i][1]] = 0;
         }
+printf("END OF STEP\n");
+
     }
 
     unsigned long long VMMC::getAttempts() const
@@ -333,47 +340,6 @@ namespace vmmc
         return clusterRotations;
     }
 
-    void VMMC::setPositions(double* coordinates)
-    {
-        // Copy particle coordinates.
-        for (unsigned int i=0;i<nParticles;i++)
-        {
-            for (unsigned int j=0;j<dimension;j++)
-            {
-                particles[i].preMovePosition[j] = coordinates[dimension*i + j];
-            }
-
-            // Check coordinate.
-            if ((particles[i].preMovePosition[0] < 0) ||
-                (particles[i].preMovePosition[0] > boxSize[0]))
-            {
-                std::cerr << "[ERROR] VMMC: Coordinates must run from 0 to the box size!\n";
-                exit(EXIT_FAILURE);
-            }
-        }
-    }
-
-#ifndef ISOTROPIC
-    void VMMC::setOrientations(double* orientations)
-    {
-        // Copy particle orientations.
-        for (unsigned int i=0;i<nParticles;i++)
-        {
-            for (unsigned int j=0;j<dimension;j++)
-            {
-                particles[i].preMoveOrientation[j] = orientations[dimension*i + j];
-            }
-
-            // Check that orientation is a unit vector.
-            if (std::abs(1.0 - computeNorm(particles[i].preMoveOrientation)) > 1e-6)
-            {
-                std::cerr << "[ERROR] VMMC: Particle orientations must be unit vectors!\n";
-                exit(EXIT_FAILURE);
-            }
-        }
-    }
-#endif
-
     void VMMC::reset()
     {
         nAttempts = nAccepts = nRotations = 0;
@@ -383,6 +349,7 @@ namespace vmmc
 
     void VMMC::proposeMove()
     {
+printf("PROPOSE_MOVE\n");
         // Choose a seed particle.
         moveParams.seed = rng.integer(0, nParticles-1);
 
@@ -408,8 +375,12 @@ namespace vmmc
         unsigned int neighbour;
 
         // Choose the move type.
-        if (rng() < probTranslate)
+        double rn = rng();
+printf("RANDOM NUMBER %f\n", rn);
+        if (rn < probTranslate)
         {
+
+printf("TRANSLATE\n");
             // Translation.
             moveParams.isRotation = false;
 
@@ -419,12 +390,14 @@ namespace vmmc
         }
         else
         {
+printf("ROTATE\n");
             // Rotation.
             moveParams.isRotation = true;
             moveParams.stepSize = maxTrialRotation*(2.0*rng()-1.0);
 
             // Check whether seed particle is isotropic.
 #ifndef ISOTROPIC
+printf("IS_ISOTROPIC %d\n", isIsotropic[moveParams.seed]);
             if (isIsotropic[moveParams.seed])
 #endif
             {
@@ -434,6 +407,7 @@ namespace vmmc
                 unsigned int pairInteractions[maxInteractions];
 
                 // Get a list of pair interactions.
+printf("INTERACTIONS CALLBACK\n");
 #ifndef ISOTROPIC
                 unsigned int nPairs = callbacks.interactionsCallback(moveParams.seed, &particles[moveParams.seed].preMovePosition[0],
                     &particles[moveParams.seed].preMoveOrientation[0], pairInteractions);
@@ -450,6 +424,8 @@ namespace vmmc
 
         if (!isEarlyExit)
         {
+
+printf("PROPOSE_MOVE NO EARLY EXIT\n");
             // Initialise the seed particle.
             particles[moveParams.seed].clusterPosition = particles[moveParams.seed].preMovePosition;
             initiateParticle(moveParams.seed, particles[moveParams.seed]);
@@ -457,6 +433,7 @@ namespace vmmc
             // Check that trial move of seed hasn't triggered early exit condition.
             if (!isEarlyExit)
             {
+printf("PROPOSE_MOVE STILL NO EARLY EXIT\n");
 #ifndef ISOTROPIC
                 if (isIsotropic[moveParams.seed] && moveParams.isRotation)
 #else
@@ -476,9 +453,16 @@ namespace vmmc
                 }
 
                 // Check whether the cluster is too large.
-                if (nMoving > cutOff) isEarlyExit = true;
+                if (nMoving > cutOff) {
+                  isEarlyExit = true;
+printf("CLUSTER TOO LARGE!\n"); 
+                }
             }
+
+printf("PROPOSE_MOVE LATE EXIT\n");
         }
+
+printf("END PROPOSE_MOVE\n");
     }
 
     bool VMMC::accept()
@@ -804,6 +788,8 @@ namespace vmmc
 
     void VMMC::initiateParticle(unsigned int particle, Particle& linker)
     {
+
+printf("INITIATE PARTICLE\n"); 
         std::vector<double> delta(dimension);
 
         // Calculate minumum image separation.
@@ -834,10 +820,12 @@ namespace vmmc
 
     void VMMC::recursiveMoveAssignment(unsigned int particle)
     {
+printf("RECURSIVE_MOVE_ASSIGNMENT\n");
         // Abort if any early exit conditions have been triggered.
         if (!isEarlyExit)
         {
             // Abort if the cluster size cut-off is exceeded.
+printf("RECURSIVE_MOVE_ASSIGNMENT NO EARLY EXIT\n");
             if (nMoving <= cutOff)
             {
                 Particle reverseMoveParticle(dimension);
