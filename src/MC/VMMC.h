@@ -340,6 +340,8 @@ namespace vmmc
 
         MersenneTwister rng;                        //!< Random number generator.
 
+        void setBeta(double);
+
     private:
         Parameters moveParams;                      //!< Parameters for the trial move.
         unsigned long long nAttempts;               //!< Number of attempted moves.
@@ -471,6 +473,8 @@ namespace vmmc
                 The norm of the vector.
         */
         double computeNorm(std::vector<double>&);
+
+        double beta = 1.0;
     };
 }
 
