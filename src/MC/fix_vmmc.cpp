@@ -417,10 +417,13 @@ void FixVMMC::init()
     }
   }
 
+  // initialise global to local index mapping
+  if(atom->map_style != Atom::MAP_YES) atom->map_init();
+
   // need a full neighbor list, built every Nevery steps
   neighbor->add_request(this, NeighConst::REQ_FULL);
 
-  // initialise the VMMC callback functions
+  // initialise the libVMMC callback functions
   using namespace std::placeholders;
   vmmc::CallbackFunctions callbacks;
 
@@ -432,7 +435,7 @@ void FixVMMC::init()
   double orientations[domain->dimension*atom->natoms];
   bool isIsotropic[atom->natoms];
 
-  // set dummy particle coordinates and orientations for VMMC object initialization
+  // set dummy particle coordinates and orientations for libVMMC object initialization
   // coordinates and orientations are set in pre_exchange() prior to VMMC move 
   for (int ii=0; ii<atom->natoms; ii++) {
 
@@ -444,7 +447,7 @@ void FixVMMC::init()
     orientations[domain->dimension*ii + 1] = 0.0;
     orientations[domain->dimension*ii + 2] = 0.0;
 
-    isIsotropic[ii] = true; // set isotropy flag
+    isIsotropic[ii] = false; // set flag to enable orientational moves
 
   }
 
@@ -454,12 +457,15 @@ void FixVMMC::init()
   boxSize[1] = domain->boxhi[1];
   boxSize[2] = domain->boxhi[2];
 
-  // initialize the VMMC object
+  // initialize libVMMC object and RNG seed
   vmmc = new VMMC(atom->natoms, domain->dimension, coordinates, orientations,
       max_translate, max_rotate, 0.5, 0.5, maxInteractions, &boxSize[0], isIsotropic, true, callbacks);
 
   vmmc->rng.setSeed(seed);
   printf("\nVMMC seed %d\n",  vmmc->rng.getSeed());
+
+  // set beta in libVMMC
+  vmmc->setBeta(beta);
 
 }
 
@@ -486,7 +492,6 @@ void FixVMMC::pre_exchange()
 
   mc_active = 1;
 
-
   double coordinates[domain->dimension*atom->natoms];
   double orientations[domain->dimension*atom->natoms];
 
@@ -509,7 +514,11 @@ void FixVMMC::pre_exchange()
     orientations[domain->dimension*id_vmmc + 0] = 1.0;
     orientations[domain->dimension*id_vmmc + 1] = 0.0;
     orientations[domain->dimension*id_vmmc + 2] = 0.0;
-
+/*
+    orientations[domain->dimension*id_vmmc + 0] = atom->mu[i][0];
+    orientations[domain->dimension*id_vmmc + 1] = atom->mu[i][1];
+    orientations[domain->dimension*id_vmmc + 2] = atom->mu[i][2];
+*/
   }
 
   vmmc->setPositions(coordinates);
@@ -525,7 +534,7 @@ void FixVMMC::pre_exchange()
 }
 
 /* ----------------------------------------------------------------------
-   compute pair interaction between two particles for VMMC library
+   compute pair interaction between two particles for libVMMC library
 ------------------------------------------------------------------------- */
 
 double FixVMMC::energy_pair_vmmc(
@@ -575,7 +584,7 @@ double FixVMMC::energy_pair_vmmc(
 
 
 /* ----------------------------------------------------------------------
-   determine all interactions for a given particle for VMMC library
+   determine all interactions for a given particle for libVMMC library
 ------------------------------------------------------------------------- */
 
 unsigned int FixVMMC::interactions_vmmc(
@@ -619,6 +628,12 @@ void FixVMMC::post_move_vmmc(
   atom->x[i][1] = pos[1];
   atom->x[i][2] = pos[2];
 
+  // move libVMMC orientations into atom->mu array for stockmayer test
+/*
+  atom->mu[i][0] = orient[0];
+  atom->mu[i][1] = orient[1];
+  atom->mu[i][2] = orient[2];
+*/
   return;
 }
 
