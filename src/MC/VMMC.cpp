@@ -676,7 +676,7 @@ namespace vmmc
 
         if (isRepusive || callbacks.isNonPairwise)
         {
-            if (rng() > exp(-excessEnergy)) return false;
+            if (rng() > exp(-beta*excessEnergy)) return false;
         }
 
         // Move successful.
@@ -895,10 +895,10 @@ namespace vmmc
 #endif
 
                         // Forward link weight.
-                        double linkWeight = std::max(1.0-exp(initialEnergy-finalEnergy),0.0);
+                        double linkWeight = std::max(1.0-exp(beta*(initialEnergy-finalEnergy)),0.0);
 
                         // Reverse link weight.
-                        double reverseLinkWeight = std::max(1.0-exp(initialEnergy-reverseMoveEnergy),0.0);
+                        double reverseLinkWeight = std::max(1.0-exp(beta*(initialEnergy-reverseMoveEnergy)),0.0);
 
                         // Test links.
                         if (rng() <= linkWeight)
@@ -1017,4 +1017,10 @@ namespace vmmc
 
         return sqrt(normSquared);
     }
+
+    void VMMC::setBeta(double beta_)
+    {
+      beta = beta_;
+    }
+
 }
