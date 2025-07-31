@@ -82,10 +82,11 @@ class FixVMMC : public Fix {
   void options(int, char **);
 
   // VMMC routines
-  double energy_pair_vmmc(unsigned int, const double*, const double*,
+  double pair_energy(unsigned int, const double*, const double*,
                           unsigned int, const double*, const double*);
-  unsigned int interactions_vmmc(unsigned int, const double*, const double*, unsigned int*);
-  void post_move_vmmc(unsigned int, const double*, const double*);
+  double pair_potential(int, int, int, int, double, double, double, double &);
+  unsigned int interactions(unsigned int, const double*, const double*, unsigned int*);
+  void post_move(unsigned int, const double*, const double*);
 
 };
 
