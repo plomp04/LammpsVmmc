@@ -17,7 +17,7 @@
     Lester Hedges (Bristol, UK)
     Ford Cadman, Oliver Henrich (University of Strathclyde, Glasgow)
 ------------------------------------------------------------------------- */
-#define DIPOLE
+//#define DIPOLE
 
 #include "fix_vmmc.h"
 #include "VMMC.h"
@@ -584,7 +584,7 @@ double FixVMMC::pair_energy(
 #ifdef DIPOLE
     total_energy = ptr->pair_energy_vmmc(i1,i2,i1type,i2type,delr,orient1,orient2);     // bespoke pair energy function 
 #endif
-#ifndef
+#ifndef DIPOLE
     total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair); // default LAMMPS single routine
 #endif
   }
