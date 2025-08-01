@@ -576,12 +576,17 @@ double FixVMMC::pair_energy(
 
   rsq = delr[0]*delr[0] + delr[1]*delr[1] + delr[2]*delr[2];
 
+#ifdef DIPOLE
   PairLJCutDipoleCut* ptr = dynamic_cast<PairLJCutDipoleCut*>(pair); // get a pointer to derived pair style
-  
+#endif
   // calculate pair energy if within cutoff
   if(rsq < cutsq[i1type][i2type]){
+#ifdef DIPOLE
     total_energy = ptr->pair_energy_vmmc(i1,i2,i1type,i2type,delr,orient1,orient2);     // bespoke pair energy function 
-//    total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair); // default LAMMPS single routine
+#endif
+#ifndef
+    total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair); // default LAMMPS single routine
+#endif
   }
 
   return total_energy;
