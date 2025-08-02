@@ -17,10 +17,12 @@
     Lester Hedges (Bristol, UK)
     Ford Cadman, Oliver Henrich (University of Strathclyde, Glasgow)
 ------------------------------------------------------------------------- */
+//#define DIPOLE
 
 #include "fix_vmmc.h"
 #include "VMMC.h"
 #include "MersenneTwister.h"
+#include "pair_lj_cut_dipole_cut.h"
 
 #include "atom.h"
 #include "atom_vec.h"
@@ -427,9 +429,9 @@ void FixVMMC::init()
   using namespace std::placeholders;
   vmmc::CallbackFunctions callbacks;
 
-  callbacks.pairEnergyCallback = std::bind(&FixVMMC::energy_pair_vmmc, this, _1, _2, _3, _4, _5, _6);
-  callbacks.interactionsCallback = std::bind(&FixVMMC::interactions_vmmc, this, _1, _2, _3, _4);
-  callbacks.postMoveCallback = std::bind(&FixVMMC::post_move_vmmc, this, _1, _2, _3);
+  callbacks.pairEnergyCallback = std::bind(&FixVMMC::pair_energy, this, _1, _2, _3, _4, _5, _6);
+  callbacks.interactionsCallback = std::bind(&FixVMMC::interactions, this, _1, _2, _3, _4);
+  callbacks.postMoveCallback = std::bind(&FixVMMC::post_move, this, _1, _2, _3);
 
   double coordinates[domain->dimension*atom->natoms];
   double orientations[domain->dimension*atom->natoms];
@@ -511,14 +513,17 @@ void FixVMMC::pre_exchange()
     coordinates[domain->dimension*id_vmmc + 1] = atom->x[i][1];
     coordinates[domain->dimension*id_vmmc + 2] = atom->x[i][2];
 
-    orientations[domain->dimension*id_vmmc + 0] = 1.0;
-    orientations[domain->dimension*id_vmmc + 1] = 0.0;
-    orientations[domain->dimension*id_vmmc + 2] = 0.0;
-/*
+#ifdef DIPOLE
     orientations[domain->dimension*id_vmmc + 0] = atom->mu[i][0];
     orientations[domain->dimension*id_vmmc + 1] = atom->mu[i][1];
     orientations[domain->dimension*id_vmmc + 2] = atom->mu[i][2];
-*/
+#endif
+#ifndef DIPOLE
+    orientations[domain->dimension*id_vmmc + 0] = 1.0;
+    orientations[domain->dimension*id_vmmc + 1] = 0.0;
+    orientations[domain->dimension*id_vmmc + 2] = 0.0;
+#endif
+
   }
 
   vmmc->setPositions(coordinates);
@@ -537,21 +542,18 @@ void FixVMMC::pre_exchange()
    compute pair interaction between two particles for libVMMC library
 ------------------------------------------------------------------------- */
 
-double FixVMMC::energy_pair_vmmc(
+double FixVMMC::pair_energy(
     unsigned int index1, const double* pos1, const double* orient1,
     unsigned int index2, const double* pos2, const double* orient2){   
   
-  int i;
   int *type = atom->type;
   pair = force->pair;
   cutsq = force->pair->cutsq;
-  double rsq;
+  double delr[3], rsq;
 
   double fpair = 0.0;
-  double factor_coul = 0.0;
+  double factor_coul = 1.0;
   double factor_lj = 1.0;
-
-  std::vector<double> delr = {0,0,0};
   double total_energy = 0.0;
 
   // local indices
@@ -567,16 +569,24 @@ double FixVMMC::energy_pair_vmmc(
   delr[2] = pos1[2]-pos2[2];
 
   // using libVMMC coordinates, hence enforce minimum image
-  for (i=0;i<3;i++) {
-    if (delr[i] < -0.5*domain->boxhi[i]) delr[i] += domain->boxhi[i];
-    if (delr[i] >= 0.5*domain->boxhi[i]) delr[i] -= domain->boxhi[i];
+  for (int ii=0; ii<3; ii++) {
+    if (delr[ii] < -0.5*domain->boxhi[ii]) delr[ii] += domain->boxhi[ii];
+    if (delr[ii] >= 0.5*domain->boxhi[ii]) delr[ii] -= domain->boxhi[ii];
   }
 
   rsq = delr[0]*delr[0] + delr[1]*delr[1] + delr[2]*delr[2];
-    
+
+#ifdef DIPOLE
+  PairLJCutDipoleCut* ptr = dynamic_cast<PairLJCutDipoleCut*>(pair); // get a pointer to derived pair style
+#endif
   // calculate pair energy if within cutoff
   if(rsq < cutsq[i1type][i2type]){
-    total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair);
+#ifdef DIPOLE
+    total_energy = ptr->pair_energy_vmmc(i1,i2,i1type,i2type,delr,orient1,orient2);     // bespoke pair energy function 
+#endif
+#ifndef DIPOLE
+    total_energy = pair->single(i1,i2,i1type,i2type,rsq,factor_coul,factor_lj,fpair); // default LAMMPS single routine
+#endif
   }
 
   return total_energy;
@@ -587,7 +597,7 @@ double FixVMMC::energy_pair_vmmc(
    determine all interactions for a given particle for libVMMC library
 ------------------------------------------------------------------------- */
 
-unsigned int FixVMMC::interactions_vmmc(
+unsigned int FixVMMC::interactions(
     unsigned int index, const double* pos, const double* orient, unsigned int* interact)
 {
   int i, j, ii, jj, inum, jnum;
@@ -618,7 +628,7 @@ unsigned int FixVMMC::interactions_vmmc(
    post move update of atom coordinates and orientations
 ------------------------------------------------------------------------- */
 
-void FixVMMC::post_move_vmmc(
+void FixVMMC::post_move(
     unsigned int index, const double* pos, const double* orient)
 {
   int i = atom->map(index+1); // work out local index
@@ -629,11 +639,11 @@ void FixVMMC::post_move_vmmc(
   atom->x[i][2] = pos[2];
 
   // move libVMMC orientations into atom->mu array for stockmayer test
-/*
+#ifdef DIPOLE 
   atom->mu[i][0] = orient[0];
   atom->mu[i][1] = orient[1];
   atom->mu[i][2] = orient[2];
-*/
+#endif
   return;
 }
 
